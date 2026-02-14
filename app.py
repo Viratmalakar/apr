@@ -19,16 +19,17 @@ def time_to_seconds(t):
 
 def seconds_to_time(sec):
     try:
-        h = int(sec // 3600)
-        m = int((sec % 3600) // 60)
-        s = int(sec % 60)
+        sec = int(sec)
+        h = sec // 3600
+        m = (sec % 3600) // 60
+        s = sec % 60
         return f"{h:02}:{m:02}:{s:02}"
     except:
         return "00:00:00"
 
 
 # =========================
-# AUTO HEADER DETECT
+# HEADER DETECT
 # =========================
 
 def detect_header(df):
@@ -47,7 +48,7 @@ def detect_header(df):
 
 
 # =========================
-# HOME PAGE
+# HOME
 # =========================
 
 @app.route("/")
@@ -56,7 +57,7 @@ def index():
 
 
 # =========================
-# MAIN PROCESS ROUTE
+# GENERATE REPORT
 # =========================
 
 @app.route("/generate", methods=["POST"])
@@ -86,7 +87,6 @@ def generate():
     )
 
     agent["Agent Name"] = agent.iloc[:,2]
-
     agent["Total Login Time"] = agent.iloc[:,3]
     agent["Total Break"] = agent.iloc[:,5]
     agent["Total Talk Time"] = agent.iloc[:,6]
@@ -121,7 +121,6 @@ def generate():
     cdr = detect_header(cdr)
 
     cdr.columns = cdr.columns.str.strip()
-
 
     cdr["Employee ID"] = (
 
@@ -170,7 +169,7 @@ def generate():
 
 
     # =========================
-    # COUNT LOGIC
+    # COUNT CALLS
     # =========================
 
     total_mature = (
@@ -245,10 +244,6 @@ def generate():
 
     ).apply(seconds_to_time)
 
-
-    # =========================
-    # FINAL TABLE
-    # =========================
 
     final_df = df[
 
