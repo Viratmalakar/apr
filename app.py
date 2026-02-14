@@ -8,7 +8,7 @@ UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 
-# ---------- TIME FUNCTIONS ----------
+# ================= TIME FUNCTIONS =================
 
 def time_to_seconds(t):
 
@@ -16,7 +16,10 @@ def time_to_seconds(t):
         if pd.isna(t):
             return 0
 
-        parts = str(t).split(":")
+        t = str(t).strip()
+
+        parts = t.split(":")
+
         return int(parts[0])*3600 + int(parts[1])*60 + int(parts[2])
 
     except:
@@ -25,16 +28,21 @@ def time_to_seconds(t):
 
 def seconds_to_time(sec):
 
-    sec = int(sec)
+    try:
 
-    h = sec // 3600
-    m = (sec % 3600) // 60
-    s = sec % 60
+        sec = int(sec)
 
-    return f"{h:02}:{m:02}:{s:02}"
+        h = sec // 3600
+        m = (sec % 3600) // 60
+        s = sec % 60
+
+        return f"{h:02}:{m:02}:{s:02}"
+
+    except:
+        return "00:00:00"
 
 
-# ---------- HOME PAGE ----------
+# ================= HOME =================
 
 @app.route("/")
 def index():
@@ -42,7 +50,7 @@ def index():
     return render_template("index.html")
 
 
-# ---------- GENERATE REPORT ----------
+# ================= GENERATE REPORT =================
 
 @app.route("/generate", methods=["POST"])
 def generate():
@@ -57,15 +65,19 @@ def generate():
     cdr_file.save(cdr_path)
 
 
-    # ==========================
+    # =================================================
     # AGENT PERFORMANCE REPORT
-    # ==========================
+    # =================================================
 
     agent = pd.read_excel(agent_path, header=2)
 
-    agent["Employee ID"] = agent.iloc[:,1].astype(str)
+    agent.columns = agent.columns.str.strip()
 
-    agent["Agent Full Name"] = agent.iloc[:,2].astype(str)
+    # Column B Employee ID
+    agent["Employee ID"] = agent.iloc[:,1].astype(str).str.strip()
+
+    # Column C Agent Name
+    agent["Agent Full Name"] = agent.iloc[:,2].astype(str).str.strip()
 
     # Column D Login Time
     agent["login_sec"] = agent.iloc[:,3].apply(time_to_seconds)
@@ -88,16 +100,24 @@ def generate():
 
 
 
-    # ==========================
+    # =================================================
     # CDR REPORT
-    # ==========================
+    # =================================================
 
     cdr = pd.read_excel(cdr_path, header=2)
 
-    cdr["Employee ID"] = cdr.iloc[:,1].astype(str)
+    cdr.columns = cdr.columns.str.strip()
+
+    # Column B Employee ID
+    cdr["Employee ID"] = cdr.iloc[:,1].astype(str).str.strip()
 
     # Column G Campaign
-    cdr["Campaign"] = cdr.iloc[:,6].astype(str)
+    cdr["Campaign"] = (
+        cdr.iloc[:,6]
+        .astype(str)
+        .str.strip()
+        .str.upper()
+    )
 
     # Column Z Mature
     cdr["matured"] = pd.to_numeric(
@@ -106,7 +126,8 @@ def generate():
     ).fillna(0)
 
 
-    # Total Mature
+    # ================= TOTAL MATURE =================
+
     total_mature = cdr.groupby(
         "Employee ID"
     )["matured"].sum().reset_index()
@@ -117,9 +138,13 @@ def generate():
     )
 
 
-    # IB Mature
+    # ================= IB MATURE =================
+
     ib = cdr[
-        cdr["Campaign"]=="CSRINBOUND"
+        cdr["Campaign"].str.contains(
+            "CSRINBOUND",
+            na=False
+        )
     ].groupby(
         "Employee ID"
     )["matured"].sum().reset_index()
@@ -130,9 +155,9 @@ def generate():
     )
 
 
-    # ==========================
-    # MERGE
-    # ==========================
+    # =================================================
+    # MERGE DATA
+    # =================================================
 
     final = agent.merge(
         total_mature,
@@ -157,9 +182,7 @@ def generate():
     )
 
 
-    # ==========================
-    # AHT
-    # ==========================
+    # ================= AHT =================
 
     final["AHT_sec"] = (
         final["talk_sec"]
@@ -168,9 +191,7 @@ def generate():
     )
 
 
-    # ==========================
-    # CONVERT BACK TO TIME
-    # ==========================
+    # ================= CONVERT TIME =================
 
     final["Total Login Time"] = final["login_sec"].apply(seconds_to_time)
 
@@ -185,9 +206,7 @@ def generate():
     final["AHT"] = final["AHT_sec"].apply(seconds_to_time)
 
 
-    # ==========================
-    # FINAL OUTPUT
-    # ==========================
+    # ================= FINAL OUTPUT =================
 
     final = final[[
         "Employee ID",
@@ -210,10 +229,13 @@ def generate():
     )
 
 
-# ---------- RENDER PORT FIX ----------
+# ================= PORT FIX FOR RENDER =================
 
 if __name__ == "__main__":
 
     port = int(os.environ.get("PORT", 10000))
 
-    app.run(host="0.0.0.0", port=port)
+    app.run(
+        host="0.0.0.0",
+        port=port
+    )
