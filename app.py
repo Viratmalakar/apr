@@ -8,7 +8,7 @@ UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 
-# ---------------- TIME FUNCTIONS ----------------
+# ---------- TIME FUNCTIONS ----------
 
 def time_to_seconds(t):
 
@@ -34,15 +34,14 @@ def seconds_to_time(sec):
     return f"{h:02}:{m:02}:{s:02}"
 
 
-# ---------------- HOME PAGE ----------------
+# ---------- HOME ----------
 
 @app.route("/")
 def index():
-
     return render_template("index.html")
 
 
-# ---------------- GENERATE REPORT ----------------
+# ---------- GENERATE REPORT ----------
 
 @app.route("/generate", methods=["POST"])
 def generate():
@@ -63,52 +62,30 @@ def generate():
 
     agent = pd.read_excel(agent_path, header=2)
 
-    agent.columns = agent.columns.str.strip()
-
     # Column B = Employee ID
     agent["Employee ID"] = agent.iloc[:,1].astype(str)
 
     # Column C = Agent Full Name
     agent["Agent Full Name"] = agent.iloc[:,2].astype(str)
 
-    # Login Time
-    agent["login_sec"] = agent["Total Login Time"].apply(time_to_seconds)
+    # Column D = Total Login Time
+    agent["login_sec"] = agent.iloc[:,3].apply(time_to_seconds)
 
-    # Break Time
-    if "Total Break" in agent.columns:
+    # Column F = Total Talk Time
+    agent["talk_sec"] = agent.iloc[:,5].apply(time_to_seconds)
 
-        agent["break_sec"] = agent["Total Break"].apply(time_to_seconds)
+    # Column Z = Total Break
+    agent["break_sec"] = agent.iloc[:,25].apply(time_to_seconds)
 
-    else:
-
-        agent["break_sec"] = (
-            agent.get("SHORTBREAK","0:00:00").apply(time_to_seconds) +
-            agent.get("TEABREAK","0:00:00").apply(time_to_seconds) +
-            agent.get("LUNCHBREAK","0:00:00").apply(time_to_seconds)
-        )
+    # Column U + Column X = Total Meeting
+    agent["meeting_sec"] = (
+        agent.iloc[:,20].apply(time_to_seconds)
+        +
+        agent.iloc[:,23].apply(time_to_seconds)
+    )
 
     # Net Login
-    if "Total Net Login" in agent.columns:
-
-        agent["net_sec"] = agent["Total Net Login"].apply(time_to_seconds)
-
-    else:
-
-        agent["net_sec"] = agent["login_sec"] - agent["break_sec"]
-
-    # Meeting
-    if "Total Meeting" in agent.columns:
-
-        agent["meeting_sec"] = agent["Total Meeting"].apply(time_to_seconds)
-
-    else:
-
-        agent["meeting_sec"] = agent.get(
-            "SYSTEMDOWN","0:00:00"
-        ).apply(time_to_seconds)
-
-    # Talk Time
-    agent["talk_sec"] = agent["Total Talk Time"].apply(time_to_seconds)
+    agent["net_sec"] = agent["login_sec"] - agent["break_sec"]
 
 
 
@@ -118,26 +95,17 @@ def generate():
 
     cdr = pd.read_excel(cdr_path, header=2)
 
-    cdr.columns = cdr.columns.str.strip()
-
     # Column B = Employee ID
     cdr["Employee ID"] = cdr.iloc[:,1].astype(str)
 
     # Column G = Campaign
     cdr["Campaign"] = cdr.iloc[:,6].astype(str)
 
-    # Column Q = CallMatured
-    cdr["CallMatured"] = pd.to_numeric(
-        cdr.iloc[:,16], errors="coerce"
+    # Column Z = Matured
+    cdr["matured"] = pd.to_numeric(
+        cdr.iloc[:,25],
+        errors="coerce"
     ).fillna(0)
-
-    # Column R = Transfer
-    cdr["Transfer"] = pd.to_numeric(
-        cdr.iloc[:,17], errors="coerce"
-    ).fillna(0)
-
-    # Mature calculation
-    cdr["matured"] = cdr["CallMatured"] + cdr["Transfer"]
 
 
     # Total Mature
@@ -151,7 +119,7 @@ def generate():
     )
 
 
-    # IB Mature (Campaign = CSRINBOUND)
+    # IB Mature
     ib = cdr[
         cdr["Campaign"]=="CSRINBOUND"
     ].groupby("Employee ID")[
@@ -161,14 +129,6 @@ def generate():
     ib.rename(
         columns={"matured":"IB Mature"},
         inplace=True
-    )
-
-
-    # IVR Hit
-    ivr = cdr[
-        cdr["Campaign"]=="CSRINBOUND"
-    ].groupby("Employee ID").size().reset_index(
-        name="Total IVR Hit"
     )
 
 
@@ -189,19 +149,14 @@ def generate():
         how="left"
     )
 
-    final = final.merge(
-        ivr,
-        on="Employee ID",
-        how="left"
-    )
-
     final.fillna(0, inplace=True)
 
 
     # OB Mature
     final["OB Mature"] = (
         final["Total Mature"]
-        - final["IB Mature"]
+        -
+        final["IB Mature"]
     )
 
 
@@ -211,7 +166,8 @@ def generate():
 
     final["AHT_sec"] = (
         final["talk_sec"]
-        / final["Total Mature"].replace(0,1)
+        /
+        final["Total Mature"].replace(0,1)
     )
 
 
@@ -248,7 +204,6 @@ def generate():
         "Total Mature",
         "IB Mature",
         "OB Mature",
-        "Total IVR Hit",
         "Total Talk Time",
         "AHT"
     ]]
@@ -260,9 +215,7 @@ def generate():
     )
 
 
-
-# ---------------- RUN ----------------
+# ---------- RUN ----------
 
 if __name__ == "__main__":
-
     app.run()
