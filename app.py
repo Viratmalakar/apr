@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request
 import pandas as pd
+import os
 from datetime import datetime
 
 app = Flask(__name__)
@@ -19,9 +20,10 @@ def time_to_seconds(t):
 
 
 def seconds_to_time(sec):
-    h = int(sec // 3600)
-    m = int((sec % 3600) // 60)
-    s = int(sec % 60)
+    sec = int(sec)
+    h = sec // 3600
+    m = (sec % 3600) // 60
+    s = sec % 60
     return f"{h:02}:{m:02}:{s:02}"
 
 
@@ -31,33 +33,15 @@ def seconds_to_time(sec):
 
 def detect_header(df):
 
-    max_rows = min(10, len(df))
+    for i in range(min(10, len(df))):
 
-    for i in range(max_rows):
+        row = df.iloc[i].astype(str).str.lower()
 
-        row = df.iloc[i].tolist()
-
-        safe_row = []
-
-        for x in row:
-
-            if pd.isna(x):
-                safe_row.append("")
-            else:
-                safe_row.append(str(x).lower())
-
-        if any(
-            ("agent" in x)
-            or ("employee" in x)
-            or ("username" in x)
-            for x in safe_row
-        ):
+        if row.str.contains("agent").any() or row.str.contains("employee").any():
 
             df.columns = df.iloc[i]
-
             df = df[i+1:]
-
-            return df.reset_index(drop=True)
+            break
 
     return df.reset_index(drop=True)
 
@@ -78,15 +62,11 @@ def index():
 @app.route("/generate", methods=["POST"])
 def generate():
 
-    agent_file = request.files.get("agent_file")
-    cdr_file = request.files.get("cdr_file")
-
-    if not agent_file or not cdr_file:
-        return "Upload both files"
-
+    agent_file = request.files["agent_file"]
+    cdr_file = request.files["cdr_file"]
 
     # =========================
-    # LOAD AGENT FILE
+    # LOAD AGENT REPORT
     # =========================
 
     agent = pd.read_excel(agent_file, header=None)
@@ -94,22 +74,28 @@ def generate():
 
     agent.columns = agent.columns.astype(str).str.strip()
 
+    # Employee ID from column B (Agent Name)
     agent["Employee ID"] = agent.iloc[:,1].astype(str).str.strip()
+
     agent["Agent Name"] = agent.iloc[:,2]
 
     agent["Total Login Time"] = agent.iloc[:,3]
+
     agent["Total Net Login"] = agent.iloc[:,4]
+
     agent["Total Break"] = agent.iloc[:,5]
 
-    # Meeting = U + X
-    agent["Total Meeting"] = agent.iloc[:,20].apply(time_to_seconds) + agent.iloc[:,23].apply(time_to_seconds)
-    agent["Total Meeting"] = agent["Total Meeting"].apply(seconds_to_time)
+    # Total Meeting = column U + column X
+    meeting = pd.to_numeric(agent.iloc[:,20], errors="coerce").fillna(0)
+    systemdown = pd.to_numeric(agent.iloc[:,23], errors="coerce").fillna(0)
 
+    agent["Total Meeting"] = meeting + systemdown
+
+    # Total Talk Time column F
     agent["Total Talk Time"] = agent.iloc[:,5]
 
-
     # =========================
-    # LOAD CDR FILE
+    # LOAD CDR
     # =========================
 
     cdr = pd.read_excel(cdr_file, header=None)
@@ -117,54 +103,57 @@ def generate():
 
     cdr.columns = cdr.columns.astype(str).str.strip()
 
+    # Employee ID from column B
     cdr["Employee ID"] = cdr.iloc[:,1].astype(str).str.strip()
 
     # Campaign column G
-    cdr["Campaign"] = cdr.iloc[:,6].astype(str).str.upper().str.strip()
+    cdr["Campaign"] = cdr.iloc[:,6].astype(str).str.upper()
 
-    # Mature column Z
-    mature_col = cdr.iloc[:,25].astype(str).str.upper()
+    # Column Z = CallMatured+Transfer result
+    matured_flag = pd.to_numeric(cdr.iloc[:,25], errors="coerce").fillna(0)
 
-    cdr["MatureFlag"] = mature_col.isin(["CALLMATURED", "TRANSFER"])
-
+    cdr["MaturedFlag"] = matured_flag
 
     # =========================
-    # COUNT LOGIC
+    # COUNT CALCULATIONS
     # =========================
 
     total_mature = (
-        cdr[cdr["MatureFlag"]]
+        cdr[cdr["MaturedFlag"] > 0]
         .groupby("Employee ID")
         .size()
         .reset_index(name="Total Mature")
     )
 
     ib_mature = (
-        cdr[
-            (cdr["MatureFlag"])
-            &
-            (cdr["Campaign"]=="CSRINBOUND")
-        ]
+        cdr[(cdr["MaturedFlag"] > 0) &
+            (cdr["Campaign"]=="CSRINBOUND")]
         .groupby("Employee ID")
         .size()
         .reset_index(name="IB Mature")
     )
 
+    calls = total_mature.merge(ib_mature, on="Employee ID", how="left")
+
+    calls = calls.fillna(0)
+
+    calls["OB Mature"] = calls["Total Mature"] - calls["IB Mature"]
+
+    calls["Total Mature"] = calls["Total Mature"].astype(int)
+    calls["IB Mature"] = calls["IB Mature"].astype(int)
+    calls["OB Mature"] = calls["OB Mature"].astype(int)
 
     # =========================
-    # MERGE
+    # MERGE WITH AGENT
     # =========================
 
-    final = agent.merge(total_mature, on="Employee ID", how="left")
-    final = final.merge(ib_mature, on="Employee ID", how="left")
+    final = agent.merge(calls, on="Employee ID", how="left")
 
     final = final.fillna(0)
 
     final["Total Mature"] = final["Total Mature"].astype(int)
     final["IB Mature"] = final["IB Mature"].astype(int)
-
-    final["OB Mature"] = final["Total Mature"] - final["IB Mature"]
-
+    final["OB Mature"] = final["OB Mature"].astype(int)
 
     # =========================
     # AHT
@@ -172,42 +161,45 @@ def generate():
 
     final["TalkSec"] = final["Total Talk Time"].apply(time_to_seconds)
 
-    final["AHTsec"] = final.apply(
-        lambda x: x["TalkSec"]/x["Total Mature"]
+    final["AHTSec"] = final.apply(
+        lambda x: x["TalkSec"]//x["Total Mature"]
         if x["Total Mature"]>0 else 0,
         axis=1
     )
 
-    final["AHT"] = final["AHTsec"].apply(seconds_to_time)
-
+    final["AHT"] = final["AHTSec"].apply(seconds_to_time)
 
     # =========================
-    # FINAL SELECT
+    # FINAL OUTPUT
     # =========================
 
     final = final[[
-        "Employee ID",
+        "Agent Name",
         "Agent Name",
         "Total Login Time",
         "Total Net Login",
         "Total Break",
         "Total Meeting",
+        "AHT",
         "Total Mature",
         "IB Mature",
-        "OB Mature",
-        "AHT"
+        "OB Mature"
     ]]
 
-
-    final = final.sort_values(
-        by="Total Net Login",
-        key=lambda x: x.apply(time_to_seconds),
-        ascending=False
-    )
-
+    final.columns = [
+        "Agent Name",
+        "Agent Full Name",
+        "Total Login Time",
+        "Total Net Login",
+        "Total Break",
+        "Total Meeting",
+        "AHT",
+        "Total Mature",
+        "IB Mature",
+        "OB Mature"
+    ]
 
     report_time = datetime.now().strftime("%d %b %Y %I:%M %p")
-
 
     return render_template(
         "result.html",
@@ -217,8 +209,11 @@ def generate():
 
 
 # =========================
-# RUN
+# RENDER PORT FIX
 # =========================
 
 if __name__ == "__main__":
-    app.run(debug=True)
+
+    port = int(os.environ.get("PORT", 10000))
+
+    app.run(host="0.0.0.0", port=port)
