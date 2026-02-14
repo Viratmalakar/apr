@@ -47,7 +47,7 @@ def detect_header(df):
 
 
 # =========================
-# HOME
+# HOME PAGE
 # =========================
 
 @app.route("/")
@@ -56,11 +56,11 @@ def index():
 
 
 # =========================
-# PROCESS
+# MAIN PROCESS ROUTE
 # =========================
 
-@app.route("/process", methods=["POST"])
-def process():
+@app.route("/generate", methods=["POST"])
+def generate():
 
     agent_file = request.files.get("agent_file")
     cdr_file = request.files.get("cdr_file")
@@ -78,7 +78,6 @@ def process():
 
     agent.columns = agent.columns.str.strip()
 
-
     agent["Employee ID"] = (
         agent.iloc[:,1]
         .astype(str)
@@ -87,20 +86,30 @@ def process():
     )
 
     agent["Agent Name"] = agent.iloc[:,2]
+
     agent["Total Login Time"] = agent.iloc[:,3]
     agent["Total Break"] = agent.iloc[:,5]
     agent["Total Talk Time"] = agent.iloc[:,6]
 
     agent["Total Meeting"] = (
+
         agent.iloc[:,20].apply(time_to_seconds)
+
         +
+
         agent.iloc[:,23].apply(time_to_seconds)
+
     ).apply(seconds_to_time)
 
+
     agent["Total Net Login"] = (
+
         agent["Total Login Time"].apply(time_to_seconds)
+
         -
+
         agent["Total Break"].apply(time_to_seconds)
+
     ).apply(seconds_to_time)
 
 
@@ -115,55 +124,86 @@ def process():
 
 
     cdr["Employee ID"] = (
+
         cdr.iloc[:,1]
+
         .astype(str)
+
         .str.replace(".0","", regex=False)
+
         .str.strip()
+
     )
 
 
     cdr["Campaign"] = (
+
         cdr.iloc[:,6]
+
         .astype(str)
+
         .str.upper()
+
         .str.strip()
+
     )
 
 
     cdr["MatureFlag"] = (
+
         cdr.iloc[:,25]
+
         .astype(str)
+
         .str.upper()
+
         .str.strip()
+
     )
 
 
     cdr["is_mature"] = cdr["MatureFlag"].isin(
-        ["CALLMATURED", "TRANSFER", "1"]
+
+        ["CALLMATURED","TRANSFER","1"]
+
     )
 
 
     # =========================
-    # COUNT LOGIC (NO .0)
+    # COUNT LOGIC
     # =========================
 
     total_mature = (
+
         cdr[cdr["is_mature"]]
+
         .groupby("Employee ID")
+
         .size()
+
         .reset_index(name="Total Mature")
+
     )
 
 
     ib_mature = (
+
         cdr[
+
             (cdr["is_mature"])
+
             &
+
             (cdr["Campaign"]=="CSRINBOUND")
+
         ]
+
         .groupby("Employee ID")
+
         .size()
+
         .reset_index(name="IB Mature")
+
     )
 
 
@@ -181,9 +221,13 @@ def process():
     df["IB Mature"] = df["IB Mature"].fillna(0).astype(int)
 
     df["OB Mature"] = (
+
         df["Total Mature"]
+
         -
+
         df["IB Mature"]
+
     ).astype(int)
 
 
@@ -203,7 +247,7 @@ def process():
 
 
     # =========================
-    # FINAL
+    # FINAL TABLE
     # =========================
 
     final_df = df[
@@ -231,7 +275,7 @@ def process():
 
         "result.html",
 
-        rows = final_df.to_dict("records")
+        rows=final_df.to_dict("records")
 
     )
 
