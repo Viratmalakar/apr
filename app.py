@@ -7,120 +7,97 @@ app = Flask(__name__)
 UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-agent_df = None
-cdr_df = None
-
-
-def clean_agent_report(path):
-
-    df = pd.read_excel(path, header=1)
-
-    df.columns = [
-        "Report Date",
-        "Agent ID",
-        "Agent Name",
-        "Total Login",
-        "Total Calls",
-        "Talk Time",
-        "Wait Time",
-        "ACW Time",
-        "Aux Time",
-        "Ringing Time",
-        *df.columns[10:]
-    ]
-
-    df = df[["Agent ID", "Agent Name", "Total Login", "Total Calls", "Talk Time"]]
-
-    return df
-
-
-def clean_cdr_report(path):
-
-    df = pd.read_excel(path, header=1)
-
-    df.columns = [
-        "Sno",
-        "Agent ID",
-        "Agent Name",
-        "Account Code",
-        "Call Date",
-        "Queue",
-        "Campaign",
-        "Skill",
-        "List Name",
-        "UniqueId",
-        *df.columns[10:]
-    ]
-
-    df["Connected"] = df["Call Status"].apply(
-        lambda x: 1 if str(x).upper() == "CONNECTED" else 0
-    )
-
-    summary = df.groupby(
-        ["Agent ID", "Agent Name"]
-    ).agg(
-        Total_CDR_Calls=("Agent ID", "count"),
-        Connected_Calls=("Connected", "sum")
-    ).reset_index()
-
-    return summary
-
 
 @app.route("/")
 def index():
     return render_template("index.html")
 
 
-@app.route("/upload_agent", methods=["POST"])
-def upload_agent():
+@app.route("/generate", methods=["POST"])
+def generate():
 
-    global agent_df
+    agent_file = request.files["agent_file"]
+    cdr_file = request.files["cdr_file"]
 
-    file = request.files["file"]
-    path = os.path.join(UPLOAD_FOLDER, file.filename)
-    file.save(path)
+    agent_path = os.path.join(UPLOAD_FOLDER, agent_file.filename)
+    cdr_path = os.path.join(UPLOAD_FOLDER, cdr_file.filename)
 
-    agent_df = clean_agent_report(path)
+    agent_file.save(agent_path)
+    cdr_file.save(cdr_path)
 
-    return render_template(
-        "result.html",
-        table=agent_df.to_html(index=False)
+    # Read Agent Performance
+    agent = pd.read_excel(agent_path, header=1)
+
+    agent = agent[[
+        "Agent Name",
+        "Agent Full Name",
+        "Total Login Time",
+        "Total Break Duration",
+        "SHORTBREAK",
+        "SYSTEMDOWN",
+        "Total Talk Time",
+        "No Of Call"
+    ]]
+
+    agent["Total Break"] = agent["Total Break Duration"]
+
+    agent["Total Meeting"] = agent["SHORTBREAK"] + agent["SYSTEMDOWN"]
+
+    agent["Total Net Login"] = (
+        agent["Total Login Time"] - agent["Total Break"]
     )
 
+    agent["AHT"] = (
+        agent["Total Talk Time"] / agent["No Of Call"]
+    )
 
-@app.route("/upload_cdr", methods=["POST"])
-def upload_cdr():
+    agent.rename(columns={
+        "No Of Call": "Total Call"
+    }, inplace=True)
 
-    global cdr_df, agent_df
+    # Read CDR
+    cdr = pd.read_excel(cdr_path, header=1)
 
-    file = request.files["file"]
-    path = os.path.join(UPLOAD_FOLDER, file.filename)
-    file.save(path)
+    ib = cdr[cdr["Call Type"] == "INBOUND"].groupby(
+        "User Full Name"
+    ).size().reset_index(name="IB Mature")
 
-    cdr_df = clean_cdr_report(path)
+    ob = cdr[cdr["Call Type"] == "OUTBOUND"].groupby(
+        "User Full Name"
+    ).size().reset_index(name="OB Mature")
 
-    if agent_df is not None:
+    final = agent.merge(
+        ib,
+        left_on="Agent Full Name",
+        right_on="User Full Name",
+        how="left"
+    )
 
-        final = agent_df.merge(
-            cdr_df,
-            on=["Agent ID", "Agent Name"],
-            how="left"
-        )
+    final = final.merge(
+        ob,
+        left_on="Agent Full Name",
+        right_on="User Full Name",
+        how="left"
+    )
 
-        final.fillna(0, inplace=True)
+    final.fillna(0, inplace=True)
 
-        final["IVR HIT"] = (
-            final["Connected_Calls"] / final["Total_CDR_Calls"]
-        ) * 100
-
-        return render_template(
-            "result.html",
-            table=final.to_html(index=False)
-        )
+    final = final[[
+        "Agent Name",
+        "Agent Full Name",
+        "Total Login Time",
+        "Total Net Login",
+        "Total Break",
+        "Total Meeting",
+        "AHT",
+        "Total Call",
+        "IB Mature",
+        "OB Mature"
+    ]]
 
     return render_template(
         "result.html",
-        table=cdr_df.to_html(index=False)
+        table=final.to_html(index=False)
     )
 
 
