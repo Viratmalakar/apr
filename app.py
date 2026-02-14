@@ -25,44 +25,42 @@ def generate():
     agent_file.save(agent_path)
     cdr_file.save(cdr_path)
 
-    # Read Agent Performance
-    agent = pd.read_excel(agent_path, header=1)
+    # FIX: correct header row
+    agent = pd.read_excel(agent_path, header=2)
 
-    agent = agent[[
-        "Agent Name",
-        "Agent Full Name",
-        "Total Login Time",
-        "Total Break Duration",
-        "SHORTBREAK",
-        "SYSTEMDOWN",
-        "Total Talk Time",
-        "No Of Call"
-    ]]
+    # strip spaces from column names
+    agent.columns = agent.columns.str.strip()
 
-    agent["Total Break"] = agent["Total Break Duration"]
+    # create required fields safely
+    agent["Total Break"] = (
+        agent.get("SHORTBREAK", 0)
+        + agent.get("TEABREAK", 0)
+        + agent.get("SYSTEMDOWN", 0)
+    )
 
-    agent["Total Meeting"] = agent["SHORTBREAK"] + agent["SYSTEMDOWN"]
+    agent["Total Meeting"] = agent.get("SYSTEMDOWN", 0)
 
     agent["Total Net Login"] = (
-        agent["Total Login Time"] - agent["Total Break"]
+        agent.get("Total Login Time", 0)
+        - agent["Total Break"]
     )
 
     agent["AHT"] = (
-        agent["Total Talk Time"] / agent["No Of Call"]
+        agent.get("Total Talk Time", 0)
+        / agent.get("No Of Call", 1)
     )
 
-    agent.rename(columns={
-        "No Of Call": "Total Call"
-    }, inplace=True)
+    agent["Total Call"] = agent.get("No Of Call", 0)
 
-    # Read CDR
-    cdr = pd.read_excel(cdr_path, header=1)
+    # read CDR
+    cdr = pd.read_excel(cdr_path, header=2)
+    cdr.columns = cdr.columns.str.strip()
 
-    ib = cdr[cdr["Call Type"] == "INBOUND"].groupby(
+    ib = cdr[cdr.get("Call Type", "") == "INBOUND"].groupby(
         "User Full Name"
     ).size().reset_index(name="IB Mature")
 
-    ob = cdr[cdr["Call Type"] == "OUTBOUND"].groupby(
+    ob = cdr[cdr.get("Call Type", "") == "OUTBOUND"].groupby(
         "User Full Name"
     ).size().reset_index(name="OB Mature")
 
@@ -82,6 +80,7 @@ def generate():
 
     final.fillna(0, inplace=True)
 
+    # FINAL REQUIRED HEADERS ONLY
     final = final[[
         "Agent Name",
         "Agent Full Name",
