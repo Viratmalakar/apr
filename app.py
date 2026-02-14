@@ -1,6 +1,5 @@
-from flask import Flask, render_template, request, redirect, send_file
+from flask import Flask, render_template, request
 import pandas as pd
-import io
 from datetime import datetime
 
 app = Flask(__name__)
@@ -10,32 +9,19 @@ app = Flask(__name__)
 # =========================
 
 def time_to_seconds(t):
-
     try:
         if pd.isna(t):
             return 0
-
-        parts = str(t).split(":")
-
-        if len(parts) != 3:
-            return 0
-
-        h, m, s = map(int, parts)
-
+        h, m, s = map(int, str(t).split(":"))
         return h*3600 + m*60 + s
-
     except:
         return 0
 
 
 def seconds_to_time(sec):
-
-    sec = int(sec)
-
-    h = sec // 3600
-    m = (sec % 3600) // 60
-    s = sec % 60
-
+    h = int(sec // 3600)
+    m = int((sec % 3600) // 60)
+    s = int(sec % 60)
     return f"{h:02}:{m:02}:{s:02}"
 
 
@@ -45,17 +31,26 @@ def seconds_to_time(sec):
 
 def detect_header(df):
 
-    for i in range(min(10, len(df))):
+    max_rows = min(10, len(df))
+
+    for i in range(max_rows):
 
         row = df.iloc[i].tolist()
 
-        row = [str(x).lower() if pd.notna(x) else "" for x in row]
+        safe_row = []
+
+        for x in row:
+
+            if pd.isna(x):
+                safe_row.append("")
+            else:
+                safe_row.append(str(x).lower())
 
         if any(
-            "agent" in x
-            or "employee" in x
-            or "username" in x
-            for x in row
+            ("agent" in x)
+            or ("employee" in x)
+            or ("username" in x)
+            for x in safe_row
         ):
 
             df.columns = df.iloc[i]
@@ -64,7 +59,7 @@ def detect_header(df):
 
             return df.reset_index(drop=True)
 
-    return df
+    return df.reset_index(drop=True)
 
 
 # =========================
@@ -73,7 +68,6 @@ def detect_header(df):
 
 @app.route("/")
 def index():
-
     return render_template("index.html")
 
 
@@ -88,230 +82,137 @@ def generate():
     cdr_file = request.files.get("cdr_file")
 
     if not agent_file or not cdr_file:
+        return "Upload both files"
 
-        return redirect("/")
 
-
-    # =====================
+    # =========================
     # LOAD AGENT FILE
-    # =====================
+    # =========================
 
     agent = pd.read_excel(agent_file, header=None)
-
     agent = detect_header(agent)
 
-    agent.columns = agent.columns.str.strip()
-
+    agent.columns = agent.columns.astype(str).str.strip()
 
     agent["Employee ID"] = agent.iloc[:,1].astype(str).str.strip()
-
     agent["Agent Name"] = agent.iloc[:,2]
 
     agent["Total Login Time"] = agent.iloc[:,3]
+    agent["Total Net Login"] = agent.iloc[:,4]
+    agent["Total Break"] = agent.iloc[:,5]
 
-    agent["Total Break"] = agent.iloc[:,20]
-
-    agent["Total Meeting"] = (
-        pd.to_numeric(agent.iloc[:,20], errors="coerce").fillna(0)
-        +
-        pd.to_numeric(agent.iloc[:,23], errors="coerce").fillna(0)
-    )
+    # Meeting = U + X
+    agent["Total Meeting"] = agent.iloc[:,20].apply(time_to_seconds) + agent.iloc[:,23].apply(time_to_seconds)
+    agent["Total Meeting"] = agent["Total Meeting"].apply(seconds_to_time)
 
     agent["Total Talk Time"] = agent.iloc[:,5]
 
 
-    # =====================
+    # =========================
     # LOAD CDR FILE
-    # =====================
+    # =========================
 
     cdr = pd.read_excel(cdr_file, header=None)
-
     cdr = detect_header(cdr)
 
-    cdr.columns = cdr.columns.str.strip()
+    cdr.columns = cdr.columns.astype(str).str.strip()
 
-
-    # Column B = Employee ID
     cdr["Employee ID"] = cdr.iloc[:,1].astype(str).str.strip()
 
-    # Column G = Campaign
+    # Campaign column G
     cdr["Campaign"] = cdr.iloc[:,6].astype(str).str.upper().str.strip()
 
-    # Column Z = CallMatured + Transfer result
-    matured_col = pd.to_numeric(cdr.iloc[:,25], errors="coerce").fillna(0)
+    # Mature column Z
+    mature_col = cdr.iloc[:,25].astype(str).str.upper()
+
+    cdr["MatureFlag"] = mature_col.isin(["CALLMATURED", "TRANSFER"])
 
 
-    # =====================
-    # TOTAL MATURE COUNT
-    # =====================
-
-    cdr["is_mature"] = matured_col > 0
-
+    # =========================
+    # COUNT LOGIC
+    # =========================
 
     total_mature = (
-
-        cdr[cdr["is_mature"]]
-
+        cdr[cdr["MatureFlag"]]
         .groupby("Employee ID")
-
         .size()
-
         .reset_index(name="Total Mature")
-
     )
-
 
     ib_mature = (
-
         cdr[
-            (cdr["is_mature"])
+            (cdr["MatureFlag"])
             &
-            (cdr["Campaign"] == "CSRINBOUND")
+            (cdr["Campaign"]=="CSRINBOUND")
         ]
-
         .groupby("Employee ID")
-
         .size()
-
         .reset_index(name="IB Mature")
-
     )
 
 
-    calls = total_mature.merge(
+    # =========================
+    # MERGE
+    # =========================
 
-        ib_mature,
-
-        on="Employee ID",
-
-        how="left"
-
-    )
-
-    calls = calls.fillna(0)
-
-
-    calls["OB Mature"] = (
-
-        calls["Total Mature"]
-
-        -
-
-        calls["IB Mature"]
-
-    )
-
-
-    # convert to int
-    calls["Total Mature"] = calls["Total Mature"].astype(int)
-    calls["IB Mature"] = calls["IB Mature"].astype(int)
-    calls["OB Mature"] = calls["OB Mature"].astype(int)
-
-
-    # =====================
-    # MERGE AGENT + CALLS
-    # =====================
-
-    final = agent.merge(
-
-        calls,
-
-        on="Employee ID",
-
-        how="left"
-
-    )
+    final = agent.merge(total_mature, on="Employee ID", how="left")
+    final = final.merge(ib_mature, on="Employee ID", how="left")
 
     final = final.fillna(0)
 
+    final["Total Mature"] = final["Total Mature"].astype(int)
+    final["IB Mature"] = final["IB Mature"].astype(int)
 
-    # =====================
-    # AHT CALCULATION
-    # =====================
+    final["OB Mature"] = final["Total Mature"] - final["IB Mature"]
 
-    final["Talk_sec"] = final["Total Talk Time"].apply(time_to_seconds)
 
-    final["AHT_sec"] = final.apply(
+    # =========================
+    # AHT
+    # =========================
 
-        lambda x:
+    final["TalkSec"] = final["Total Talk Time"].apply(time_to_seconds)
 
-        x["Talk_sec"] // x["Total Mature"]
-
-        if x["Total Mature"] > 0 else 0,
-
+    final["AHTsec"] = final.apply(
+        lambda x: x["TalkSec"]/x["Total Mature"]
+        if x["Total Mature"]>0 else 0,
         axis=1
-
     )
 
-    final["AHT"] = final["AHT_sec"].apply(seconds_to_time)
+    final["AHT"] = final["AHTsec"].apply(seconds_to_time)
 
 
-    # =====================
-    # FINAL OUTPUT
-    # =====================
+    # =========================
+    # FINAL SELECT
+    # =========================
 
-    final_df = pd.DataFrame({
+    final = final[[
+        "Employee ID",
+        "Agent Name",
+        "Total Login Time",
+        "Total Net Login",
+        "Total Break",
+        "Total Meeting",
+        "Total Mature",
+        "IB Mature",
+        "OB Mature",
+        "AHT"
+    ]]
 
-        "Employee ID": final["Employee ID"],
 
-        "Agent Name": final["Agent Name"],
-
-        "Total Login Time": final["Total Login Time"],
-
-        "Total Break": final["Total Break"],
-
-        "Total Meeting": final["Total Meeting"],
-
-        "Total Mature": final["Total Mature"].astype(int),
-
-        "IB Mature": final["IB Mature"].astype(int),
-
-        "OB Mature": final["OB Mature"].astype(int),
-
-        "AHT": final["AHT"]
-
-    })
+    final = final.sort_values(
+        by="Total Net Login",
+        key=lambda x: x.apply(time_to_seconds),
+        ascending=False
+    )
 
 
     report_time = datetime.now().strftime("%d %b %Y %I:%M %p")
 
 
     return render_template(
-
         "result.html",
-
-        rows=final_df.to_dict("records"),
-
+        rows=final.to_dict("records"),
         report_time=report_time
-
-    )
-
-
-# =========================
-# EXPORT
-# =========================
-
-@app.route("/export", methods=["POST"])
-def export():
-
-    data = request.json
-
-    df = pd.DataFrame(data)
-
-    output = io.BytesIO()
-
-    df.to_excel(output, index=False)
-
-    output.seek(0)
-
-    return send_file(
-
-        output,
-
-        download_name="Agent_Report.xlsx",
-
-        as_attachment=True
-
     )
 
 
@@ -320,5 +221,4 @@ def export():
 # =========================
 
 if __name__ == "__main__":
-
     app.run(debug=True)
