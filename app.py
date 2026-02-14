@@ -8,7 +8,8 @@ UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 
-# convert HH:MM:SS to seconds
+# ---------- TIME FUNCTIONS ----------
+
 def time_to_seconds(t):
 
     try:
@@ -22,20 +23,25 @@ def time_to_seconds(t):
         return 0
 
 
-# convert seconds to HH:MM:SS
 def seconds_to_time(sec):
 
-    h = int(sec // 3600)
-    m = int((sec % 3600) // 60)
-    s = int(sec % 60)
+    sec = int(sec)
+
+    h = sec // 3600
+    m = (sec % 3600) // 60
+    s = sec % 60
 
     return f"{h:02}:{m:02}:{s:02}"
 
+
+# ---------- MAIN PAGE ----------
 
 @app.route("/")
 def index():
     return render_template("index.html")
 
+
+# ---------- GENERATE REPORT ----------
 
 @app.route("/generate", methods=["POST"])
 def generate():
@@ -49,82 +55,116 @@ def generate():
     agent_file.save(agent_path)
     cdr_file.save(cdr_path)
 
+    # ---------- AGENT PERFORMANCE ----------
+
     agent = pd.read_excel(agent_path, header=2)
     agent.columns = agent.columns.str.strip()
 
-    # convert time columns to seconds
+    agent["Employee ID"] = agent["Agent Name"]
+
     agent["login_sec"] = agent["Total Login Time"].apply(time_to_seconds)
 
-    agent["break_sec"] = (
-        agent.get("SHORTBREAK", "0:00:00").apply(time_to_seconds)
-        + agent.get("TEABREAK", "0:00:00").apply(time_to_seconds)
-        + agent.get("SYSTEMDOWN", "0:00:00").apply(time_to_seconds)
-    )
+    # break
+    if "Total Break" in agent.columns:
+        agent["break_sec"] = agent["Total Break"].apply(time_to_seconds)
+    else:
+        agent["break_sec"] = (
+            agent.get("SHORTBREAK","0:00:00").apply(time_to_seconds) +
+            agent.get("TEABREAK","0:00:00").apply(time_to_seconds) +
+            agent.get("LUNCHBREAK","0:00:00").apply(time_to_seconds)
+        )
 
-    agent["meeting_sec"] = agent.get(
-        "SYSTEMDOWN", "0:00:00"
-    ).apply(time_to_seconds)
+    # net login
+    if "Total Net Login" in agent.columns:
+        agent["net_sec"] = agent["Total Net Login"].apply(time_to_seconds)
+    else:
+        agent["net_sec"] = agent["login_sec"] - agent["break_sec"]
 
-    agent["net_sec"] = agent["login_sec"] - agent["break_sec"]
+    # meeting
+    if "Total Meeting" in agent.columns:
+        agent["meeting_sec"] = agent["Total Meeting"].apply(time_to_seconds)
+    else:
+        agent["meeting_sec"] = agent.get(
+            "SYSTEMDOWN","0:00:00"
+        ).apply(time_to_seconds)
 
-    agent["talk_sec"] = agent.get(
-        "Total Talk Time", "0:00:00"
-    ).apply(time_to_seconds)
+    # talk time
+    agent["talk_sec"] = agent["Total Talk Time"].apply(time_to_seconds)
 
-    agent["Total Call"] = agent.get("No Of Call", 0)
+    # ---------- CDR REPORT ----------
 
-    agent["aht_sec"] = agent["talk_sec"] / agent["Total Call"].replace(0, 1)
-
-    # convert back to time format
-    agent["Total Login Time"] = agent["login_sec"].apply(seconds_to_time)
-
-    agent["Total Break"] = agent["break_sec"].apply(seconds_to_time)
-
-    agent["Total Meeting"] = agent["meeting_sec"].apply(seconds_to_time)
-
-    agent["Total Net Login"] = agent["net_sec"].apply(seconds_to_time)
-
-    agent["AHT"] = agent["aht_sec"].apply(seconds_to_time)
-
-    # read CDR
     cdr = pd.read_excel(cdr_path, header=2)
     cdr.columns = cdr.columns.str.strip()
 
-    ib = cdr[cdr.get("Call Type", "") == "INBOUND"].groupby(
-        "User Full Name"
-    ).size().reset_index(name="IB Mature")
+    cdr["Employee ID"] = cdr["Username"]
 
-    ob = cdr[cdr.get("Call Type", "") == "OUTBOUND"].groupby(
-        "User Full Name"
-    ).size().reset_index(name="OB Mature")
-
-    final = agent.merge(
-        ib,
-        left_on="Agent Full Name",
-        right_on="User Full Name",
-        how="left"
+    # matured = CallMatured + Transfer
+    cdr["matured"] = (
+        cdr.get("CallMatured",0)
+        + cdr.get("Transfer",0)
     )
 
-    final = final.merge(
-        ob,
-        left_on="Agent Full Name",
-        right_on="User Full Name",
-        how="left"
-    )
+    # total mature
+    total_mature = cdr.groupby("Employee ID")["matured"].sum().reset_index()
+    total_mature.rename(columns={"matured":"Total Mature"}, inplace=True)
 
-    final.fillna(0, inplace=True)
+    # IB mature (CSRINBOUND)
+    ib = cdr[cdr["CallType"]=="CSRINBOUND"].groupby(
+        "Employee ID"
+    )["matured"].sum().reset_index()
+
+    ib.rename(columns={"matured":"IB Mature"}, inplace=True)
+
+    # total ivr hit
+    ivr = cdr[cdr["CallType"]=="CSRINBOUND"].groupby(
+        "Employee ID"
+    ).size().reset_index(name="Total IVR Hit")
+
+    # merge all
+    final = agent.merge(total_mature,on="Employee ID",how="left")
+
+    final = final.merge(ib,on="Employee ID",how="left")
+
+    final = final.merge(ivr,on="Employee ID",how="left")
+
+    final.fillna(0,inplace=True)
+
+    # OB mature
+    final["OB Mature"] = final["Total Mature"] - final["IB Mature"]
+
+    # ---------- AHT ----------
+
+    final["AHT_sec"] = final["talk_sec"] / final["Total Mature"].replace(0,1)
+
+    # ---------- CONVERT BACK TO TIME ----------
+
+    final["Total Login Time"] = final["login_sec"].apply(seconds_to_time)
+
+    final["Total Break"] = final["break_sec"].apply(seconds_to_time)
+
+    final["Total Net Login"] = final["net_sec"].apply(seconds_to_time)
+
+    final["Total Meeting"] = final["meeting_sec"].apply(seconds_to_time)
+
+    final["Total Talk Time"] = final["talk_sec"].apply(seconds_to_time)
+
+    final["AHT"] = final["AHT_sec"].apply(seconds_to_time)
+
+    # ---------- FINAL COLUMNS ----------
 
     final = final[[
-        "Agent Name",
+        "Employee ID",
         "Agent Full Name",
         "Total Login Time",
         "Total Net Login",
         "Total Break",
         "Total Meeting",
-        "AHT",
-        "Total Call",
+        "Total Mature",
         "IB Mature",
-        "OB Mature"
+        "OB Mature",
+        "Total IVR Hit",
+        "Total Talk Time",
+        "AHT"
     ]]
 
     return render_template(
