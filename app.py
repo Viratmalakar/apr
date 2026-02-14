@@ -7,67 +7,121 @@ app = Flask(__name__)
 UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+agent_df = None
+cdr_df = None
 
-# Home page
+
+def clean_agent_report(path):
+
+    df = pd.read_excel(path, header=1)
+
+    df.columns = [
+        "Report Date",
+        "Agent ID",
+        "Agent Name",
+        "Total Login",
+        "Total Calls",
+        "Talk Time",
+        "Wait Time",
+        "ACW Time",
+        "Aux Time",
+        "Ringing Time",
+        *df.columns[10:]
+    ]
+
+    df = df[["Agent ID", "Agent Name", "Total Login", "Total Calls", "Talk Time"]]
+
+    return df
+
+
+def clean_cdr_report(path):
+
+    df = pd.read_excel(path, header=1)
+
+    df.columns = [
+        "Sno",
+        "Agent ID",
+        "Agent Name",
+        "Account Code",
+        "Call Date",
+        "Queue",
+        "Campaign",
+        "Skill",
+        "List Name",
+        "UniqueId",
+        *df.columns[10:]
+    ]
+
+    df["Connected"] = df["Call Status"].apply(
+        lambda x: 1 if str(x).upper() == "CONNECTED" else 0
+    )
+
+    summary = df.groupby(
+        ["Agent ID", "Agent Name"]
+    ).agg(
+        Total_CDR_Calls=("Agent ID", "count"),
+        Connected_Calls=("Connected", "sum")
+    ).reset_index()
+
+    return summary
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
 
 
-# Agent Performance upload
 @app.route("/upload_agent", methods=["POST"])
 def upload_agent():
 
+    global agent_df
+
     file = request.files["file"]
+    path = os.path.join(UPLOAD_FOLDER, file.filename)
+    file.save(path)
 
-    filepath = os.path.join(UPLOAD_FOLDER, file.filename)
-    file.save(filepath)
+    agent_df = clean_agent_report(path)
 
-    df = pd.read_excel(filepath)
-
-    df.replace("-", 0, inplace=True)
-    df.fillna(0, inplace=True)
-
-    try:
-        df["Total Break"] = (
-            df["Lunch Break"] +
-            df["Tea Break"] +
-            df["Short Break"]
-        )
-
-        df["Net Login"] = (
-            df["Total Login"] -
-            df["Total Break"]
-        )
-    except:
-        pass
-
-    table = df.to_html(index=False)
-
-    return render_template("result.html", table=table)
+    return render_template(
+        "result.html",
+        table=agent_df.to_html(index=False)
+    )
 
 
-# CDR upload
 @app.route("/upload_cdr", methods=["POST"])
 def upload_cdr():
 
+    global cdr_df, agent_df
+
     file = request.files["file"]
+    path = os.path.join(UPLOAD_FOLDER, file.filename)
+    file.save(path)
 
-    filepath = os.path.join(UPLOAD_FOLDER, file.filename)
-    file.save(filepath)
+    cdr_df = clean_cdr_report(path)
 
-    df = pd.read_excel(filepath)
+    if agent_df is not None:
 
-    df.fillna(0, inplace=True)
+        final = agent_df.merge(
+            cdr_df,
+            on=["Agent ID", "Agent Name"],
+            how="left"
+        )
 
-    # Example calculation
-    try:
-        summary = df.groupby("Agent Name").size().reset_index(name="Total Calls")
-        table = summary.to_html(index=False)
-    except:
-        table = df.to_html(index=False)
+        final.fillna(0, inplace=True)
 
-    return render_template("result.html", table=table)
+        final["IVR HIT"] = (
+            final["Connected_Calls"] / final["Total_CDR_Calls"]
+        ) * 100
+
+        return render_template(
+            "result.html",
+            table=final.to_html(index=False)
+        )
+
+    return render_template(
+        "result.html",
+        table=cdr_df.to_html(index=False)
+    )
 
 
 if __name__ == "__main__":
