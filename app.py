@@ -34,10 +34,11 @@ def seconds_to_time(sec):
     return f"{h:02}:{m:02}:{s:02}"
 
 
-# ---------- HOME ----------
+# ---------- HOME PAGE ----------
 
 @app.route("/")
 def index():
+
     return render_template("index.html")
 
 
@@ -56,28 +57,26 @@ def generate():
     cdr_file.save(cdr_path)
 
 
-    # =====================================================
+    # ==========================
     # AGENT PERFORMANCE REPORT
-    # =====================================================
+    # ==========================
 
     agent = pd.read_excel(agent_path, header=2)
 
-    # Column B = Employee ID
     agent["Employee ID"] = agent.iloc[:,1].astype(str)
 
-    # Column C = Agent Full Name
     agent["Agent Full Name"] = agent.iloc[:,2].astype(str)
 
-    # Column D = Total Login Time
+    # Column D Login Time
     agent["login_sec"] = agent.iloc[:,3].apply(time_to_seconds)
 
-    # Column F = Total Talk Time
+    # Column F Talk Time
     agent["talk_sec"] = agent.iloc[:,5].apply(time_to_seconds)
 
-    # Column Z = Total Break
+    # Column Z Break
     agent["break_sec"] = agent.iloc[:,25].apply(time_to_seconds)
 
-    # Column U + Column X = Total Meeting
+    # Column U + X Meeting
     agent["meeting_sec"] = (
         agent.iloc[:,20].apply(time_to_seconds)
         +
@@ -89,19 +88,18 @@ def generate():
 
 
 
-    # =====================================================
+    # ==========================
     # CDR REPORT
-    # =====================================================
+    # ==========================
 
     cdr = pd.read_excel(cdr_path, header=2)
 
-    # Column B = Employee ID
     cdr["Employee ID"] = cdr.iloc[:,1].astype(str)
 
-    # Column G = Campaign
+    # Column G Campaign
     cdr["Campaign"] = cdr.iloc[:,6].astype(str)
 
-    # Column Z = Matured
+    # Column Z Mature
     cdr["matured"] = pd.to_numeric(
         cdr.iloc[:,25],
         errors="coerce"
@@ -109,9 +107,9 @@ def generate():
 
 
     # Total Mature
-    total_mature = cdr.groupby("Employee ID")[
-        "matured"
-    ].sum().reset_index()
+    total_mature = cdr.groupby(
+        "Employee ID"
+    )["matured"].sum().reset_index()
 
     total_mature.rename(
         columns={"matured":"Total Mature"},
@@ -122,9 +120,9 @@ def generate():
     # IB Mature
     ib = cdr[
         cdr["Campaign"]=="CSRINBOUND"
-    ].groupby("Employee ID")[
-        "matured"
-    ].sum().reset_index()
+    ].groupby(
+        "Employee ID"
+    )["matured"].sum().reset_index()
 
     ib.rename(
         columns={"matured":"IB Mature"},
@@ -132,10 +130,9 @@ def generate():
     )
 
 
-
-    # =====================================================
-    # MERGE DATA
-    # =====================================================
+    # ==========================
+    # MERGE
+    # ==========================
 
     final = agent.merge(
         total_mature,
@@ -160,9 +157,9 @@ def generate():
     )
 
 
-    # =====================================================
-    # AHT CALCULATION
-    # =====================================================
+    # ==========================
+    # AHT
+    # ==========================
 
     final["AHT_sec"] = (
         final["talk_sec"]
@@ -171,10 +168,9 @@ def generate():
     )
 
 
-
-    # =====================================================
-    # CONVERT BACK TO TIME FORMAT
-    # =====================================================
+    # ==========================
+    # CONVERT BACK TO TIME
+    # ==========================
 
     final["Total Login Time"] = final["login_sec"].apply(seconds_to_time)
 
@@ -189,10 +185,9 @@ def generate():
     final["AHT"] = final["AHT_sec"].apply(seconds_to_time)
 
 
-
-    # =====================================================
+    # ==========================
     # FINAL OUTPUT
-    # =====================================================
+    # ==========================
 
     final = final[[
         "Employee ID",
@@ -215,7 +210,10 @@ def generate():
     )
 
 
-# ---------- RUN ----------
+# ---------- RENDER PORT FIX ----------
 
 if __name__ == "__main__":
-    app.run()
+
+    port = int(os.environ.get("PORT", 10000))
+
+    app.run(host="0.0.0.0", port=port)
