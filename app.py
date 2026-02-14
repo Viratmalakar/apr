@@ -8,6 +8,30 @@ UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 
+# convert HH:MM:SS to seconds
+def time_to_seconds(t):
+
+    try:
+        if pd.isna(t):
+            return 0
+
+        parts = str(t).split(":")
+        return int(parts[0])*3600 + int(parts[1])*60 + int(parts[2])
+
+    except:
+        return 0
+
+
+# convert seconds to HH:MM:SS
+def seconds_to_time(sec):
+
+    h = int(sec // 3600)
+    m = int((sec % 3600) // 60)
+    s = int(sec % 60)
+
+    return f"{h:02}:{m:02}:{s:02}"
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -25,32 +49,42 @@ def generate():
     agent_file.save(agent_path)
     cdr_file.save(cdr_path)
 
-    # FIX: correct header row
     agent = pd.read_excel(agent_path, header=2)
-
-    # strip spaces from column names
     agent.columns = agent.columns.str.strip()
 
-    # create required fields safely
-    agent["Total Break"] = (
-        agent.get("SHORTBREAK", 0)
-        + agent.get("TEABREAK", 0)
-        + agent.get("SYSTEMDOWN", 0)
+    # convert time columns to seconds
+    agent["login_sec"] = agent["Total Login Time"].apply(time_to_seconds)
+
+    agent["break_sec"] = (
+        agent.get("SHORTBREAK", "0:00:00").apply(time_to_seconds)
+        + agent.get("TEABREAK", "0:00:00").apply(time_to_seconds)
+        + agent.get("SYSTEMDOWN", "0:00:00").apply(time_to_seconds)
     )
 
-    agent["Total Meeting"] = agent.get("SYSTEMDOWN", 0)
+    agent["meeting_sec"] = agent.get(
+        "SYSTEMDOWN", "0:00:00"
+    ).apply(time_to_seconds)
 
-    agent["Total Net Login"] = (
-        agent.get("Total Login Time", 0)
-        - agent["Total Break"]
-    )
+    agent["net_sec"] = agent["login_sec"] - agent["break_sec"]
 
-    agent["AHT"] = (
-        agent.get("Total Talk Time", 0)
-        / agent.get("No Of Call", 1)
-    )
+    agent["talk_sec"] = agent.get(
+        "Total Talk Time", "0:00:00"
+    ).apply(time_to_seconds)
 
     agent["Total Call"] = agent.get("No Of Call", 0)
+
+    agent["aht_sec"] = agent["talk_sec"] / agent["Total Call"].replace(0, 1)
+
+    # convert back to time format
+    agent["Total Login Time"] = agent["login_sec"].apply(seconds_to_time)
+
+    agent["Total Break"] = agent["break_sec"].apply(seconds_to_time)
+
+    agent["Total Meeting"] = agent["meeting_sec"].apply(seconds_to_time)
+
+    agent["Total Net Login"] = agent["net_sec"].apply(seconds_to_time)
+
+    agent["AHT"] = agent["aht_sec"].apply(seconds_to_time)
 
     # read CDR
     cdr = pd.read_excel(cdr_path, header=2)
@@ -80,7 +114,6 @@ def generate():
 
     final.fillna(0, inplace=True)
 
-    # FINAL REQUIRED HEADERS ONLY
     final = final[[
         "Agent Name",
         "Agent Full Name",
