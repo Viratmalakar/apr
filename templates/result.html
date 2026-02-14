@@ -1,25 +1,98 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Dashboard Result</title>
-<link rel="stylesheet" href="/static/style.css">
-</head>
+    <title>Dashboard Result</title>
 
+    <style>
+
+        body{
+            font-family: Arial;
+            background:#f4f6f8;
+            padding:20px;
+        }
+
+        .card{
+            background:white;
+            padding:20px;
+            border-radius:10px;
+            box-shadow:0 0 10px rgba(0,0,0,0.1);
+        }
+
+        table{
+            width:100%;
+            border-collapse:collapse;
+            margin-top:20px;
+        }
+
+        th,td{
+            border:1px solid #ccc;
+            padding:8px;
+            text-align:center;
+        }
+
+        th{
+            background:#2c3e50;
+            color:white;
+        }
+
+        tr:nth-child(even){
+            background:#f2f2f2;
+        }
+
+    </style>
+
+</head>
 <body>
 
-<div class="container">
+
+<div class="card">
 
 <h2>Dashboard Result</h2>
 
-<div class="table-container">
-
-{{ table | safe }}
-
-</div>
-
-<br>
-
 <a href="/">Upload New File</a>
+
+
+<table>
+
+<tr>
+
+<th>Employee ID</th>
+<th>Agent Full Name</th>
+<th>Total Login Time</th>
+<th>Total Net Login</th>
+<th>Total Break</th>
+<th>Total Meeting</th>
+<th>Total Mature</th>
+<th>IB Mature</th>
+<th>OB Mature</th>
+<th>Total Talk Time</th>
+<th>AHT</th>
+
+</tr>
+
+
+{% for row in tables %}
+
+<tr>
+
+<td>{{row["Employee ID"]}}</td>
+<td>{{row["Agent Full Name"]}}</td>
+<td>{{row["Total Login Time"]}}</td>
+<td>{{row["Total Net Login"]}}</td>
+<td>{{row["Total Break"]}}</td>
+<td>{{row["Total Meeting"]}}</td>
+<td>{{row["Total Mature"]}}</td>
+<td>{{row["IB Mature"]}}</td>
+<td>{{row["OB Mature"]}}</td>
+<td>{{row["Total Talk Time"]}}</td>
+<td>{{row["AHT"]}}</td>
+
+</tr>
+
+{% endfor %}
+
+
+</table>
 
 </div>
 
