@@ -8,7 +8,7 @@ UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 
-# ---------- TIME CONVERSION ----------
+# ---------------- TIME FUNCTIONS ----------------
 
 def time_to_seconds(t):
 
@@ -34,14 +34,15 @@ def seconds_to_time(sec):
     return f"{h:02}:{m:02}:{s:02}"
 
 
-# ---------- HOME ----------
+# ---------------- HOME PAGE ----------------
 
 @app.route("/")
 def index():
+
     return render_template("index.html")
 
 
-# ---------- GENERATE REPORT ----------
+# ---------------- GENERATE REPORT ----------------
 
 @app.route("/generate", methods=["POST"])
 def generate():
@@ -55,9 +56,10 @@ def generate():
     agent_file.save(agent_path)
     cdr_file.save(cdr_path)
 
-    # ==========================
+
+    # =====================================================
     # AGENT PERFORMANCE REPORT
-    # ==========================
+    # =====================================================
 
     agent = pd.read_excel(agent_path, header=2)
 
@@ -109,52 +111,71 @@ def generate():
     agent["talk_sec"] = agent["Total Talk Time"].apply(time_to_seconds)
 
 
-    # ==========================
+
+    # =====================================================
     # CDR REPORT
-    # ==========================
+    # =====================================================
 
     cdr = pd.read_excel(cdr_path, header=2)
 
     cdr.columns = cdr.columns.str.strip()
 
-    # Column B = Username = Employee ID
+    # Column B = Employee ID
     cdr["Employee ID"] = cdr.iloc[:,1].astype(str)
 
+    # Column G = Campaign
+    cdr["Campaign"] = cdr.iloc[:,6].astype(str)
+
+    # Column Q = CallMatured
+    cdr["CallMatured"] = pd.to_numeric(
+        cdr.iloc[:,16], errors="coerce"
+    ).fillna(0)
+
+    # Column R = Transfer
+    cdr["Transfer"] = pd.to_numeric(
+        cdr.iloc[:,17], errors="coerce"
+    ).fillna(0)
+
     # Mature calculation
-    cdr["matured"] = (
-        cdr.get("CallMatured",0)
-        + cdr.get("Transfer",0)
-    )
+    cdr["matured"] = cdr["CallMatured"] + cdr["Transfer"]
+
 
     # Total Mature
-    total_mature = cdr.groupby("Employee ID")["matured"].sum().reset_index()
+    total_mature = cdr.groupby("Employee ID")[
+        "matured"
+    ].sum().reset_index()
 
     total_mature.rename(
         columns={"matured":"Total Mature"},
         inplace=True
     )
 
-    # IB Mature (CSRINBOUND)
+
+    # IB Mature (Campaign = CSRINBOUND)
     ib = cdr[
-        cdr.get("CallType","")=="CSRINBOUND"
-    ].groupby("Employee ID")["matured"].sum().reset_index()
+        cdr["Campaign"]=="CSRINBOUND"
+    ].groupby("Employee ID")[
+        "matured"
+    ].sum().reset_index()
 
     ib.rename(
         columns={"matured":"IB Mature"},
         inplace=True
     )
 
+
     # IVR Hit
     ivr = cdr[
-        cdr.get("CallType","")=="CSRINBOUND"
+        cdr["Campaign"]=="CSRINBOUND"
     ].groupby("Employee ID").size().reset_index(
         name="Total IVR Hit"
     )
 
 
-    # ==========================
+
+    # =====================================================
     # MERGE DATA
-    # ==========================
+    # =====================================================
 
     final = agent.merge(
         total_mature,
@@ -174,7 +195,8 @@ def generate():
         how="left"
     )
 
-    final.fillna(0,inplace=True)
+    final.fillna(0, inplace=True)
+
 
     # OB Mature
     final["OB Mature"] = (
@@ -183,9 +205,9 @@ def generate():
     )
 
 
-    # ==========================
+    # =====================================================
     # AHT CALCULATION
-    # ==========================
+    # =====================================================
 
     final["AHT_sec"] = (
         final["talk_sec"]
@@ -193,9 +215,10 @@ def generate():
     )
 
 
-    # ==========================
-    # CONVERT BACK TO TIME
-    # ==========================
+
+    # =====================================================
+    # CONVERT BACK TO TIME FORMAT
+    # =====================================================
 
     final["Total Login Time"] = final["login_sec"].apply(seconds_to_time)
 
@@ -210,9 +233,10 @@ def generate():
     final["AHT"] = final["AHT_sec"].apply(seconds_to_time)
 
 
-    # ==========================
+
+    # =====================================================
     # FINAL OUTPUT
-    # ==========================
+    # =====================================================
 
     final = final[[
         "Employee ID",
@@ -229,13 +253,16 @@ def generate():
         "AHT"
     ]]
 
+
     return render_template(
         "result.html",
         table=final.to_html(index=False)
     )
 
 
-# ---------- RUN ----------
+
+# ---------------- RUN ----------------
 
 if __name__ == "__main__":
+
     app.run()
