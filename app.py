@@ -1,51 +1,44 @@
 from flask import Flask, render_template, request
 import pandas as pd
-import os
 
 app = Flask(__name__)
 
-UPLOAD_FOLDER = "uploads"
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+# ================================
+# TIME FORMAT FUNCTION
+# ================================
 
-# ================= TIME FUNCTIONS =================
-
-def time_to_seconds(t):
-
+def to_seconds(val):
     try:
-        if pd.isna(t):
-            return 0
-
-        t = str(t).strip()
-        h, m, s = t.split(":")
+        h, m, s = str(val).split(":")
         return int(h)*3600 + int(m)*60 + int(s)
-
     except:
         return 0
 
 
-def seconds_to_time(sec):
-
+def to_hhmmss(seconds):
     try:
-        sec = int(sec)
-        h = sec // 3600
-        m = (sec % 3600) // 60
-        s = sec % 60
+        seconds = int(seconds)
+        h = seconds // 3600
+        m = (seconds % 3600) // 60
+        s = seconds % 60
         return f"{h:02}:{m:02}:{s:02}"
-
     except:
         return "00:00:00"
 
 
-# ================= HOME =================
+# ================================
+# HOME PAGE
+# ================================
 
 @app.route("/")
-def index():
-
+def home():
     return render_template("index.html")
 
 
-# ================= GENERATE REPORT =================
+# ================================
+# GENERATE REPORT
+# ================================
 
 @app.route("/generate", methods=["POST"])
 def generate():
@@ -53,84 +46,86 @@ def generate():
     agent_file = request.files["agent_file"]
     cdr_file = request.files["cdr_file"]
 
-    agent_path = os.path.join(UPLOAD_FOLDER, agent_file.filename)
-    cdr_path = os.path.join(UPLOAD_FOLDER, cdr_file.filename)
+    agent = pd.read_excel(agent_file, header=2)
+    cdr = pd.read_excel(cdr_file, header=2)
 
-    agent_file.save(agent_path)
-    cdr_file.save(cdr_path)
+    agent.columns = agent.columns.str.strip()
+    cdr.columns = cdr.columns.str.strip()
 
+    # ================================
+    # AGENT CLEAN
+    # ================================
 
-    # =====================================================
-    # AGENT PERFORMANCE REPORT
-    # =====================================================
-
-    agent = pd.read_excel(agent_path, header=2)
-
-    agent["Employee ID"] = agent.iloc[:,1].astype(str).str.strip()
-
-    agent["Agent Full Name"] = agent.iloc[:,2].astype(str).str.strip()
-
-    # Login Time (Column D)
-    agent["login_sec"] = agent.iloc[:,3].apply(time_to_seconds)
-
-    # Talk Time (Column F)
-    agent["talk_sec"] = agent.iloc[:,5].apply(time_to_seconds)
-
-    # Break Time (Column Z)
-    agent["break_sec"] = agent.iloc[:,25].apply(time_to_seconds)
-
-    # Meeting Time (Column U + X)
-    agent["meeting_sec"] = (
-        agent.iloc[:,20].apply(time_to_seconds)
-        +
-        agent.iloc[:,23].apply(time_to_seconds)
+    agent["Employee ID"] = (
+        agent.iloc[:,1]
+        .astype(str)
+        .str.replace(".0","", regex=False)
+        .str.strip()
     )
 
-    # Net Login
-    agent["net_sec"] = agent["login_sec"] - agent["break_sec"]
+    agent["Agent Full Name"] = agent.iloc[:,2]
+
+    agent["Total Login Time"] = agent.iloc[:,3]
+    agent["Total Break"] = agent.iloc[:,5]
+    agent["Total Talk Time"] = agent.iloc[:,6]
+
+    agent["Total Meeting"] = (
+        agent.iloc[:,20].apply(to_seconds)
+        + agent.iloc[:,23].apply(to_seconds)
+    ).apply(to_hhmmss)
 
 
-
-    # =====================================================
-    # CDR REPORT (COUNT LOGIC)
-    # =====================================================
-
-    cdr = pd.read_excel(cdr_path, header=2)
+    # ================================
+    # CDR CLEAN
+    # ================================
 
     cdr["Employee ID"] = (
         cdr.iloc[:,1]
         .astype(str)
+        .str.replace(".0","", regex=False)
         .str.strip()
     )
 
     cdr["Campaign"] = (
         cdr.iloc[:,6]
         .astype(str)
-        .str.strip()
         .str.upper()
+        .str.strip()
     )
 
-    cdr["MatureFlag"] = pd.to_numeric(
-        cdr.iloc[:,25],
-        errors="coerce"
-    ).fillna(0)
+    cdr["MatureFlag"] = (
+        cdr.iloc[:,25]
+        .astype(str)
+        .str.upper()
+        .str.strip()
+    )
+
+    cdr["is_mature"] = cdr["MatureFlag"].isin(
+        ["CALLMATURED", "TRANSFER", "1"]
+    )
 
 
-    # Total Mature COUNT
+    # ================================
+    # TOTAL MATURE COUNT
+    # ================================
+
     total_mature = (
-        cdr[cdr["MatureFlag"] > 0]
+        cdr[cdr["is_mature"]]
         .groupby("Employee ID")
         .size()
         .reset_index(name="Total Mature")
     )
 
 
-    # IB Mature COUNT
+    # ================================
+    # IB MATURE COUNT
+    # ================================
+
     ib_mature = (
         cdr[
-            (cdr["Campaign"] == "CSRINBOUND")
+            (cdr["is_mature"])
             &
-            (cdr["MatureFlag"] > 0)
+            (cdr["Campaign"] == "CSRINBOUND")
         ]
         .groupby("Employee ID")
         .size()
@@ -138,84 +133,70 @@ def generate():
     )
 
 
-    # =====================================================
-    # MERGE DATA
-    # =====================================================
+    # ================================
+    # MERGE
+    # ================================
 
-    final = agent.merge(
-        total_mature,
-        on="Employee ID",
-        how="left"
-    )
+    df = agent.merge(total_mature, on="Employee ID", how="left")
+    df = df.merge(ib_mature, on="Employee ID", how="left")
 
-    final = final.merge(
-        ib_mature,
-        on="Employee ID",
-        how="left"
-    )
+    df["Total Mature"] = df["Total Mature"].fillna(0)
+    df["IB Mature"] = df["IB Mature"].fillna(0)
 
-    final.fillna(0, inplace=True)
-
-
-    # OB Mature
-    final["OB Mature"] = (
-        final["Total Mature"]
-        -
-        final["IB Mature"]
+    df["OB Mature"] = (
+        df["Total Mature"]
+        - df["IB Mature"]
     )
 
 
+    # ================================
+    # NET LOGIN
+    # ================================
+
+    df["Total Net Login"] = (
+        df["Total Login Time"].apply(to_seconds)
+        - df["Total Break"].apply(to_seconds)
+    ).apply(to_hhmmss)
+
+
+    # ================================
     # AHT
-    final["AHT_sec"] = (
-        final["talk_sec"]
-        /
-        final["Total Mature"].replace(0,1)
-    )
+    # ================================
+
+    df["AHT"] = (
+        df["Total Talk Time"].apply(to_seconds)
+        / df["Total Mature"].replace(0,1)
+    ).apply(to_hhmmss)
 
 
-    # Convert back to time format
-    final["Total Login Time"] = final["login_sec"].apply(seconds_to_time)
-
-    final["Total Break"] = final["break_sec"].apply(seconds_to_time)
-
-    final["Total Net Login"] = final["net_sec"].apply(seconds_to_time)
-
-    final["Total Meeting"] = final["meeting_sec"].apply(seconds_to_time)
-
-    final["Total Talk Time"] = final["talk_sec"].apply(seconds_to_time)
-
-    final["AHT"] = final["AHT_sec"].apply(seconds_to_time)
+    df = df.fillna(0)
 
 
-    # Final output
-    final = final[[
-        "Employee ID",
-        "Agent Full Name",
-        "Total Login Time",
-        "Total Net Login",
-        "Total Break",
-        "Total Meeting",
-        "Total Mature",
-        "IB Mature",
-        "OB Mature",
-        "Total Talk Time",
-        "AHT"
-    ]]
-
+    result = df[
+        [
+            "Employee ID",
+            "Agent Full Name",
+            "Total Login Time",
+            "Total Net Login",
+            "Total Break",
+            "Total Meeting",
+            "Total Mature",
+            "IB Mature",
+            "OB Mature",
+            "Total Talk Time",
+            "AHT"
+        ]
+    ]
 
     return render_template(
         "result.html",
-        table=final.to_html(index=False)
+        tables=result.to_dict(orient="records")
     )
 
 
-# ================= RENDER PORT FIX =================
+# ================================
+# RUN
+# ================================
 
 if __name__ == "__main__":
-
-    port = int(os.environ.get("PORT", 10000))
-
-    app.run(
-        host="0.0.0.0",
-        port=port
-    )
+    app.run()
