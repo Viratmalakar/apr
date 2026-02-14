@@ -20,15 +20,37 @@ def index():
         filepath = os.path.join(UPLOAD_FOLDER, file.filename)
         file.save(filepath)
 
+        # Excel read
         df = pd.read_excel(filepath)
 
+        # Replace '-' with 0
+        df.replace("-", 0, inplace=True)
+
+        # Fill blank with 0
         df.fillna(0, inplace=True)
 
-        # Example calculation
-        if "Total Login" in df.columns and "Break" in df.columns:
-            df["Net Login"] = df["Total Login"] - df["Break"]
+        # Example column calculations (adjust according to your file)
+        try:
+            df["Total Break"] = (
+                df["Lunch Break"] +
+                df["Tea Break"] +
+                df["Short Break"]
+            )
 
-        table = df.to_html(classes="table", index=False)
+            df["Total Meeting"] = (
+                df["Meeting"] +
+                df["System Down"]
+            )
+
+            df["Net Login"] = (
+                df["Total Login"] -
+                df["Total Break"]
+            )
+
+        except:
+            pass
+
+        table = df.to_html(classes="table table-bordered", index=False)
 
         return render_template("result.html", table=table)
 
@@ -36,4 +58,4 @@ def index():
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run()
