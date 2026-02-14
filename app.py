@@ -5,9 +5,9 @@ from datetime import datetime
 
 app = Flask(__name__)
 
-# =========================
+# ======================
 # TIME FUNCTIONS
-# =========================
+# ======================
 
 def time_to_seconds(t):
     try:
@@ -21,19 +21,19 @@ def time_to_seconds(t):
 
 def seconds_to_time(sec):
     sec = int(sec)
-    h = sec // 3600
-    m = (sec % 3600) // 60
-    s = sec % 60
+    h = sec//3600
+    m = (sec%3600)//60
+    s = sec%60
     return f"{h:02}:{m:02}:{s:02}"
 
 
-# =========================
+# ======================
 # SAFE HEADER DETECT
-# =========================
+# ======================
 
 def detect_header(df):
 
-    for i in range(min(10, len(df))):
+    for i in range(min(10,len(df))):
 
         row = df.iloc[i].astype(str).str.lower()
 
@@ -46,18 +46,18 @@ def detect_header(df):
     return df.reset_index(drop=True)
 
 
-# =========================
+# ======================
 # HOME
-# =========================
+# ======================
 
 @app.route("/")
 def index():
     return render_template("index.html")
 
 
-# =========================
-# GENERATE REPORT
-# =========================
+# ======================
+# GENERATE
+# ======================
 
 @app.route("/generate", methods=["POST"])
 def generate():
@@ -65,19 +65,19 @@ def generate():
     agent_file = request.files["agent_file"]
     cdr_file = request.files["cdr_file"]
 
-    # =========================
-    # LOAD AGENT REPORT
-    # =========================
+    # ======================
+    # LOAD AGENT FILE
+    # ======================
 
     agent = pd.read_excel(agent_file, header=None)
     agent = detect_header(agent)
 
     agent.columns = agent.columns.astype(str).str.strip()
 
-    # Employee ID from column B (Agent Name)
+    # IMPORTANT: COLUMN B = Employee ID
     agent["Employee ID"] = agent.iloc[:,1].astype(str).str.strip()
 
-    agent["Agent Name"] = agent.iloc[:,2]
+    agent["Agent Full Name"] = agent.iloc[:,2]
 
     agent["Total Login Time"] = agent.iloc[:,3]
 
@@ -85,67 +85,68 @@ def generate():
 
     agent["Total Break"] = agent.iloc[:,5]
 
-    # Total Meeting = column U + column X
+    agent["Total Talk Time"] = agent.iloc[:,6]
+
+    # Total Meeting = U + X
     meeting = pd.to_numeric(agent.iloc[:,20], errors="coerce").fillna(0)
     systemdown = pd.to_numeric(agent.iloc[:,23], errors="coerce").fillna(0)
 
     agent["Total Meeting"] = meeting + systemdown
 
-    # Total Talk Time column F
-    agent["Total Talk Time"] = agent.iloc[:,5]
 
-    # =========================
-    # LOAD CDR
-    # =========================
+    # ======================
+    # LOAD CDR FILE
+    # ======================
 
     cdr = pd.read_excel(cdr_file, header=None)
     cdr = detect_header(cdr)
 
     cdr.columns = cdr.columns.astype(str).str.strip()
 
-    # Employee ID from column B
+    # IMPORTANT: COLUMN B = Username = Employee ID
     cdr["Employee ID"] = cdr.iloc[:,1].astype(str).str.strip()
 
-    # Campaign column G
+    # Campaign Column G
     cdr["Campaign"] = cdr.iloc[:,6].astype(str).str.upper()
 
-    # Column Z = CallMatured+Transfer result
-    matured_flag = pd.to_numeric(cdr.iloc[:,25], errors="coerce").fillna(0)
+    # Column Z = CallMatured + Transfer flag
+    cdr["MatureFlag"] = pd.to_numeric(cdr.iloc[:,25], errors="coerce").fillna(0)
 
-    cdr["MaturedFlag"] = matured_flag
 
-    # =========================
-    # COUNT CALCULATIONS
-    # =========================
+    # ======================
+    # COUNT LOGIC (COUNT, NOT SUM)
+    # ======================
 
-    total_mature = (
-        cdr[cdr["MaturedFlag"] > 0]
+    total = (
+        cdr[cdr["MatureFlag"]>0]
         .groupby("Employee ID")
         .size()
         .reset_index(name="Total Mature")
     )
 
-    ib_mature = (
-        cdr[(cdr["MaturedFlag"] > 0) &
+    ib = (
+        cdr[(cdr["MatureFlag"]>0) &
             (cdr["Campaign"]=="CSRINBOUND")]
         .groupby("Employee ID")
         .size()
         .reset_index(name="IB Mature")
     )
 
-    calls = total_mature.merge(ib_mature, on="Employee ID", how="left")
+    calls = total.merge(ib, on="Employee ID", how="left")
 
     calls = calls.fillna(0)
 
     calls["OB Mature"] = calls["Total Mature"] - calls["IB Mature"]
 
+    # remove .0
     calls["Total Mature"] = calls["Total Mature"].astype(int)
     calls["IB Mature"] = calls["IB Mature"].astype(int)
     calls["OB Mature"] = calls["OB Mature"].astype(int)
 
-    # =========================
+
+    # ======================
     # MERGE WITH AGENT
-    # =========================
+    # ======================
 
     final = agent.merge(calls, on="Employee ID", how="left")
 
@@ -155,9 +156,10 @@ def generate():
     final["IB Mature"] = final["IB Mature"].astype(int)
     final["OB Mature"] = final["OB Mature"].astype(int)
 
-    # =========================
+
+    # ======================
     # AHT
-    # =========================
+    # ======================
 
     final["TalkSec"] = final["Total Talk Time"].apply(time_to_seconds)
 
@@ -169,37 +171,28 @@ def generate():
 
     final["AHT"] = final["AHTSec"].apply(seconds_to_time)
 
-    # =========================
-    # FINAL OUTPUT
-    # =========================
+
+    # ======================
+    # FINAL TABLE
+    # ======================
 
     final = final[[
-        "Agent Name",
-        "Agent Name",
-        "Total Login Time",
-        "Total Net Login",
-        "Total Break",
-        "Total Meeting",
-        "AHT",
-        "Total Mature",
-        "IB Mature",
-        "OB Mature"
-    ]]
-
-    final.columns = [
-        "Agent Name",
+        "Employee ID",
         "Agent Full Name",
         "Total Login Time",
         "Total Net Login",
         "Total Break",
         "Total Meeting",
-        "AHT",
         "Total Mature",
         "IB Mature",
-        "OB Mature"
-    ]
+        "OB Mature",
+        "Total Talk Time",
+        "AHT"
+    ]]
+
 
     report_time = datetime.now().strftime("%d %b %Y %I:%M %p")
+
 
     return render_template(
         "result.html",
@@ -208,12 +201,12 @@ def generate():
     )
 
 
-# =========================
-# RENDER PORT FIX
-# =========================
+# ======================
+# RUN FOR RENDER
+# ======================
 
 if __name__ == "__main__":
 
-    port = int(os.environ.get("PORT", 10000))
+    port = int(os.environ.get("PORT",10000))
 
     app.run(host="0.0.0.0", port=port)
