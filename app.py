@@ -13,16 +13,18 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 def time_to_seconds(t):
 
     try:
+
         if pd.isna(t):
             return 0
 
         t = str(t).strip()
 
-        parts = t.split(":")
+        h, m, s = t.split(":")
 
-        return int(parts[0])*3600 + int(parts[1])*60 + int(parts[2])
+        return int(h)*3600 + int(m)*60 + int(s)
 
     except:
+
         return 0
 
 
@@ -39,6 +41,7 @@ def seconds_to_time(sec):
         return f"{h:02}:{m:02}:{s:02}"
 
     except:
+
         return "00:00:00"
 
 
@@ -50,7 +53,7 @@ def index():
     return render_template("index.html")
 
 
-# ================= GENERATE REPORT =================
+# ================= GENERATE =================
 
 @app.route("/generate", methods=["POST"])
 def generate():
@@ -65,13 +68,11 @@ def generate():
     cdr_file.save(cdr_path)
 
 
-    # =================================================
+    # =====================================================
     # AGENT PERFORMANCE REPORT
-    # =================================================
+    # =====================================================
 
     agent = pd.read_excel(agent_path, header=2)
-
-    agent.columns = agent.columns.str.strip()
 
     # Column B Employee ID
     agent["Employee ID"] = agent.iloc[:,1].astype(str).str.strip()
@@ -100,16 +101,18 @@ def generate():
 
 
 
-    # =================================================
+    # =====================================================
     # CDR REPORT
-    # =================================================
+    # =====================================================
 
     cdr = pd.read_excel(cdr_path, header=2)
 
-    cdr.columns = cdr.columns.str.strip()
-
     # Column B Employee ID
-    cdr["Employee ID"] = cdr.iloc[:,1].astype(str).str.strip()
+    cdr["Employee ID"] = (
+        cdr.iloc[:,1]
+        .astype(str)
+        .str.strip()
+    )
 
     # Column G Campaign
     cdr["Campaign"] = (
@@ -126,38 +129,36 @@ def generate():
     ).fillna(0)
 
 
-    # ================= TOTAL MATURE =================
+    # ================= TOTAL MATURE COUNT =================
 
-    total_mature = cdr.groupby(
+    total_mature = cdr[
+        cdr["matured"] > 0
+    ].groupby(
         "Employee ID"
-    )["matured"].sum().reset_index()
-
-    total_mature.rename(
-        columns={"matured":"Total Mature"},
-        inplace=True
+    ).size().reset_index(
+        name="Total Mature"
     )
 
 
-    # ================= IB MATURE =================
+    # ================= IB MATURE COUNT =================
 
     ib = cdr[
-        cdr["Campaign"].str.contains(
-            "CSRINBOUND",
-            na=False
+        (cdr["matured"] > 0)
+        &
+        (
+            cdr["Campaign"]
+            .str.contains("CSRINBOUND", na=False)
         )
     ].groupby(
         "Employee ID"
-    )["matured"].sum().reset_index()
-
-    ib.rename(
-        columns={"matured":"IB Mature"},
-        inplace=True
+    ).size().reset_index(
+        name="IB Mature"
     )
 
 
-    # =================================================
-    # MERGE DATA
-    # =================================================
+    # =====================================================
+    # MERGE
+    # =====================================================
 
     final = agent.merge(
         total_mature,
@@ -191,19 +192,37 @@ def generate():
     )
 
 
-    # ================= CONVERT TIME =================
+    # ================= CONVERT BACK TO TIME =================
 
-    final["Total Login Time"] = final["login_sec"].apply(seconds_to_time)
+    final["Total Login Time"] = (
+        final["login_sec"]
+        .apply(seconds_to_time)
+    )
 
-    final["Total Break"] = final["break_sec"].apply(seconds_to_time)
+    final["Total Break"] = (
+        final["break_sec"]
+        .apply(seconds_to_time)
+    )
 
-    final["Total Net Login"] = final["net_sec"].apply(seconds_to_time)
+    final["Total Net Login"] = (
+        final["net_sec"]
+        .apply(seconds_to_time)
+    )
 
-    final["Total Meeting"] = final["meeting_sec"].apply(seconds_to_time)
+    final["Total Meeting"] = (
+        final["meeting_sec"]
+        .apply(seconds_to_time)
+    )
 
-    final["Total Talk Time"] = final["talk_sec"].apply(seconds_to_time)
+    final["Total Talk Time"] = (
+        final["talk_sec"]
+        .apply(seconds_to_time)
+    )
 
-    final["AHT"] = final["AHT_sec"].apply(seconds_to_time)
+    final["AHT"] = (
+        final["AHT_sec"]
+        .apply(seconds_to_time)
+    )
 
 
     # ================= FINAL OUTPUT =================
@@ -229,7 +248,7 @@ def generate():
     )
 
 
-# ================= PORT FIX FOR RENDER =================
+# ================= RENDER PORT FIX =================
 
 if __name__ == "__main__":
 
