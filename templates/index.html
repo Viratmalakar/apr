@@ -1,23 +1,13 @@
-<!DOCTYPE html>
-<html>
-<head>
-<title>Upload</title>
-</head>
-<body>
+<form action="/generate" method="POST" enctype="multipart/form-data">
 
-<h2>Upload Reports</h2>
-
-<form action="/generate" method="post" enctype="multipart/form-data">
-
-Agent Performance Report:
-<input type="file" name="agent_file" required><br><br>
+Agent Performance:
+<input type="file" name="agent_file" required>
+<br><br>
 
 CDR Report:
-<input type="file" name="cdr_file" required><br><br>
+<input type="file" name="cdr_file" required>
+<br><br>
 
-<button type="submit">Generate Report</button>
+<button type="submit">Generate</button>
 
 </form>
-
-</body>
-</html>
