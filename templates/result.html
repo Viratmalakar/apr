@@ -1,85 +1,108 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 
-<title>Agent Dashboard</title>
+<meta charset="UTF-8">
+<title>Agent Performance Dashboard</title>
 
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 
 <style>
 
 body{
-background: linear-gradient(135deg,#0f2027,#203a43,#2c5364);
-font-family: Arial;
-color:white;
+font-family:Segoe UI;
+background:#0f172a;
+margin:0;
 padding:20px;
+color:white;
 }
 
-
-/* HEADER STYLE */
-
-th{
-color:#D4AF37;
-background:linear-gradient(145deg,#1c1c1c,#2c2c2c);
-padding:12px;
-font-size:16px;
+.container{
+max-width:1400px;
+margin:auto;
 }
 
-
-/* TABLE STYLE */
-
-table{
-border-collapse:collapse;
-width:100%;
-background:white;
-color:black;
-box-shadow:0px 0px 20px rgba(0,0,0,0.6);
+.header{
+display:flex;
+justify-content:space-between;
+align-items:center;
+margin-bottom:20px;
 }
 
-td{
-padding:10px;
-border:1px solid #ddd;
-font-size:14px;
+.title{
+font-size:28px;
+font-weight:bold;
+color:#FFD700;
 }
 
-
-/* BUTTONS */
+.controls{
+display:flex;
+gap:10px;
+}
 
 button{
+
 padding:10px 20px;
-margin:10px;
 border:none;
+border-radius:6px;
 cursor:pointer;
 font-weight:bold;
-border-radius:6px;
 }
 
-
-.copyBtn{
-background:#D4AF37;
-color:black;
-}
-
-.resetBtn{
+.reset{
 background:red;
 color:white;
 }
 
-.searchBox{
-padding:10px;
-width:300px;
-margin:10px;
-font-size:16px;
+.copy{
+background:#FFD700;
+color:black;
 }
 
+.search{
+padding:10px;
+width:250px;
+border-radius:6px;
+border:none;
+}
 
-/* HEADER BAR */
+.table-container{
+background:white;
+padding:20px;
+border-radius:10px;
+overflow:auto;
+}
 
-.topBar{
-display:flex;
-justify-content:space-between;
-align-items:center;
+table{
+
+border-collapse:collapse;
+width:100%;
+color:black;
+}
+
+th{
+
+background:linear-gradient(45deg,#FFD700,#b8860b);
+color:black;
+padding:12px;
+font-size:15px;
+}
+
+td{
+
+padding:10px;
+border-bottom:1px solid #ddd;
+}
+
+tr:hover{
+
+background:#f1f1f1;
+}
+
+.report-time{
+
 margin-bottom:10px;
+color:#FFD700;
 }
 
 </style>
@@ -87,37 +110,44 @@ margin-bottom:10px;
 </head>
 <body>
 
+<div class="container">
 
-<div class="topBar">
+<div class="header">
 
-<div>
+<div class="title">Agent Performance Dashboard</div>
 
-<input type="text"
+<div class="controls">
+
+<input
+type="text"
 id="search"
-class="searchBox"
-placeholder="Search Employee ID or Agent Name"
-onkeyup="searchAgent()">
+class="search"
+placeholder="Search Employee ID or Name"
+onkeyup="searchTable()"
+>
 
-</div>
+<button class="copy" onclick="copyImage()">Copy Table</button>
 
-
-<div>
-
-<button class="copyBtn" onclick="copyTable()">Copy Table</button>
-
-<button class="resetBtn" onclick="resetDashboard()">Reset</button>
+<button class="reset" onclick="resetPage()">Reset</button>
 
 </div>
 
 </div>
 
+<div class="report-time">
 
+Report Time : {{report_time}}
 
-<div id="tableContainer">
+</div>
 
-<table id="dataTable">
+<div class="table-container" id="tableDiv">
+
+<table id="table">
+
+<thead>
 
 <tr>
+
 <th>Employee ID</th>
 <th>Agent Name</th>
 <th>Total Login</th>
@@ -128,8 +158,12 @@ onkeyup="searchAgent()">
 <th>Total Mature</th>
 <th>IB Mature</th>
 <th>OB Mature</th>
+
 </tr>
 
+</thead>
+
+<tbody>
 
 {% for row in rows %}
 
@@ -150,87 +184,68 @@ onkeyup="searchAgent()">
 
 {% endfor %}
 
+</tbody>
 
 </table>
 
 </div>
 
-
+</div>
 
 <script>
 
+function resetPage(){
 
-/* SEARCH FUNCTION */
+localStorage.clear();
+sessionStorage.clear();
 
-function searchAgent(){
-
-let input=document.getElementById("search").value.toLowerCase()
-
-let rows=document.querySelectorAll("#dataTable tr")
-
-for(let i=1;i<rows.length;i++){
-
-let text=rows[i].innerText.toLowerCase()
-
-rows[i].style.display=text.includes(input)?"":"none"
+window.location.href="/";
 
 }
 
-}
+function searchTable(){
 
+let input=document.getElementById("search").value.toLowerCase();
 
+let rows=document.querySelectorAll("#table tbody tr");
 
-/* RESET FUNCTION */
+rows.forEach(row=>{
 
-function resetDashboard(){
+let id=row.cells[0].innerText.toLowerCase();
+let name=row.cells[1].innerText.toLowerCase();
 
-localStorage.clear()
+if(id.includes(input)||name.includes(input))
+row.style.display="";
+else
+row.style.display="none";
 
-sessionStorage.clear()
-
-document.cookie.split(";").forEach(function(c){
-
-document.cookie=c.replace(/^ +/,"")
-.replace(/=.*/,"=;expires="+new Date().toUTCString()+";path=/")
-
-})
-
-window.location.href="/"
+});
 
 }
 
+function copyImage(){
 
+html2canvas(document.getElementById("tableDiv"),{
 
-/* COPY TABLE AS ULTRA HD PNG */
-
-function copyTable(){
-
-let table=document.getElementById("tableContainer")
-
-html2canvas(table,{
-
-scale:4,
-useCORS:true
+scale:4
 
 }).then(canvas=>{
 
 canvas.toBlob(blob=>{
 
-let item=new ClipboardItem({"image/png":blob})
+const item=new ClipboardItem({"image/png":blob});
 
-navigator.clipboard.write([item])
+navigator.clipboard.write([item]);
 
-alert("Table copied as Ultra HD Image")
+alert("Table copied as image");
 
-})
+});
 
-})
+});
 
 }
 
-
 </script>
-
 
 </body>
 </html>
