@@ -1,6 +1,53 @@
-<table border="1">
+<!DOCTYPE html>
+<html>
+<head>
+
+<title>Agent Performance Dashboard</title>
+
+<style>
+
+body{
+font-family: Arial;
+background:#f4f6f8;
+padding:20px;
+}
+
+table{
+border-collapse: collapse;
+width:100%;
+background:white;
+}
+
+th{
+background:#007bff;
+color:white;
+padding:10px;
+}
+
+td{
+padding:8px;
+border:1px solid #ddd;
+text-align:center;
+}
+
+h2{
+text-align:center;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<h2>Agent Performance Dashboard</h2>
+
+<p>Report Time: {{report_time}}</p>
+
+<table>
 
 <tr>
+
 <th>ID</th>
 <th>Name</th>
 <th>Login</th>
@@ -11,10 +58,13 @@
 <th>Total Mature</th>
 <th>IB Mature</th>
 <th>OB Mature</th>
+
 </tr>
 
 {% for row in rows %}
+
 <tr>
+
 <td>{{row["Employee ID"]}}</td>
 <td>{{row["Agent Name"]}}</td>
 <td>{{row["Total Login Time"]}}</td>
@@ -25,7 +75,12 @@
 <td>{{row["Total Mature"]}}</td>
 <td>{{row["IB Mature"]}}</td>
 <td>{{row["OB Mature"]}}</td>
+
 </tr>
+
 {% endfor %}
 
 </table>
+
+</body>
+</html>
