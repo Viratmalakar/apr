@@ -2,64 +2,134 @@
 <html>
 <head>
 
-<title>Agent Performance Dashboard</title>
+<title>Agent Dashboard</title>
+
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 
 <style>
 
 body{
+background: linear-gradient(135deg,#0f2027,#203a43,#2c5364);
 font-family: Arial;
-background:#f4f6f8;
+color:white;
 padding:20px;
 }
 
-table{
-border-collapse: collapse;
-width:100%;
-background:white;
-}
+
+/* HEADER STYLE */
 
 th{
-background:#007bff;
-color:white;
-padding:10px;
+color:#D4AF37;
+background:linear-gradient(145deg,#1c1c1c,#2c2c2c);
+padding:12px;
+font-size:16px;
+}
+
+
+/* TABLE STYLE */
+
+table{
+border-collapse:collapse;
+width:100%;
+background:white;
+color:black;
+box-shadow:0px 0px 20px rgba(0,0,0,0.6);
 }
 
 td{
-padding:8px;
+padding:10px;
 border:1px solid #ddd;
-text-align:center;
+font-size:14px;
 }
 
-h2{
-text-align:center;
+
+/* BUTTONS */
+
+button{
+padding:10px 20px;
+margin:10px;
+border:none;
+cursor:pointer;
+font-weight:bold;
+border-radius:6px;
+}
+
+
+.copyBtn{
+background:#D4AF37;
+color:black;
+}
+
+.resetBtn{
+background:red;
+color:white;
+}
+
+.searchBox{
+padding:10px;
+width:300px;
+margin:10px;
+font-size:16px;
+}
+
+
+/* HEADER BAR */
+
+.topBar{
+display:flex;
+justify-content:space-between;
+align-items:center;
+margin-bottom:10px;
 }
 
 </style>
 
 </head>
-
 <body>
 
-<h2>Agent Performance Dashboard</h2>
 
-<p>Report Time: {{report_time}}</p>
+<div class="topBar">
 
-<table>
+<div>
+
+<input type="text"
+id="search"
+class="searchBox"
+placeholder="Search Employee ID or Agent Name"
+onkeyup="searchAgent()">
+
+</div>
+
+
+<div>
+
+<button class="copyBtn" onclick="copyTable()">Copy Table</button>
+
+<button class="resetBtn" onclick="resetDashboard()">Reset</button>
+
+</div>
+
+</div>
+
+
+
+<div id="tableContainer">
+
+<table id="dataTable">
 
 <tr>
-
-<th>ID</th>
-<th>Name</th>
-<th>Login</th>
-<th>Net Login</th>
-<th>Break</th>
-<th>Meeting</th>
+<th>Employee ID</th>
+<th>Agent Name</th>
+<th>Total Login</th>
+<th>Total Net Login</th>
+<th>Total Break</th>
+<th>Total Meeting</th>
 <th>AHT</th>
 <th>Total Mature</th>
 <th>IB Mature</th>
 <th>OB Mature</th>
-
 </tr>
+
 
 {% for row in rows %}
 
@@ -67,7 +137,7 @@ text-align:center;
 
 <td>{{row["Employee ID"]}}</td>
 <td>{{row["Agent Name"]}}</td>
-<td>{{row["Total Login Time"]}}</td>
+<td>{{row["Total Login"]}}</td>
 <td>{{row["Total Net Login"]}}</td>
 <td>{{row["Total Break"]}}</td>
 <td>{{row["Total Meeting"]}}</td>
@@ -80,7 +150,87 @@ text-align:center;
 
 {% endfor %}
 
+
 </table>
+
+</div>
+
+
+
+<script>
+
+
+/* SEARCH FUNCTION */
+
+function searchAgent(){
+
+let input=document.getElementById("search").value.toLowerCase()
+
+let rows=document.querySelectorAll("#dataTable tr")
+
+for(let i=1;i<rows.length;i++){
+
+let text=rows[i].innerText.toLowerCase()
+
+rows[i].style.display=text.includes(input)?"":"none"
+
+}
+
+}
+
+
+
+/* RESET FUNCTION */
+
+function resetDashboard(){
+
+localStorage.clear()
+
+sessionStorage.clear()
+
+document.cookie.split(";").forEach(function(c){
+
+document.cookie=c.replace(/^ +/,"")
+.replace(/=.*/,"=;expires="+new Date().toUTCString()+";path=/")
+
+})
+
+window.location.href="/"
+
+}
+
+
+
+/* COPY TABLE AS ULTRA HD PNG */
+
+function copyTable(){
+
+let table=document.getElementById("tableContainer")
+
+html2canvas(table,{
+
+scale:4,
+useCORS:true
+
+}).then(canvas=>{
+
+canvas.toBlob(blob=>{
+
+let item=new ClipboardItem({"image/png":blob})
+
+navigator.clipboard.write([item])
+
+alert("Table copied as Ultra HD Image")
+
+})
+
+})
+
+}
+
+
+</script>
+
 
 </body>
 </html>
