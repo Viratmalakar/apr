@@ -1,146 +1,196 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
 
 <meta charset="UTF-8">
-<title>Agent Performance Dashboard</title>
+
+<title>Dashboard Result</title>
 
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 
 <style>
 
 body{
+
+background:linear-gradient(135deg,#020617,#0f172a);
 font-family:Segoe UI;
-background:#0f172a;
 margin:0;
 padding:20px;
 color:white;
+
 }
 
 .container{
-max-width:1400px;
-margin:auto;
+
+border:2px solid gold;
+
+border-radius:12px;
+
+padding:20px;
+
+box-shadow:
+0 0 10px gold,
+inset 0 0 10px rgba(255,215,0,0.3);
+
 }
 
 .header{
+
 display:flex;
 justify-content:space-between;
 align-items:center;
 margin-bottom:20px;
+
 }
 
 .title{
-font-size:28px;
-font-weight:bold;
+
+font-size:26px;
 color:#FFD700;
+font-weight:bold;
+
+text-shadow:0 0 5px gold;
+
 }
 
 .controls{
+
 display:flex;
 gap:10px;
+
+}
+
+input{
+
+padding:10px;
+border-radius:6px;
+border:2px solid gold;
+background:black;
+color:white;
+
+box-shadow:inset 0 0 5px gold;
+
 }
 
 button{
 
 padding:10px 20px;
+
 border:none;
 border-radius:6px;
-cursor:pointer;
+
 font-weight:bold;
+cursor:pointer;
+
+background:linear-gradient(45deg,#FFD700,#b8860b);
+
+box-shadow:
+0 5px 0 #8b6914,
+0 0 10px gold;
+
 }
 
-.reset{
-background:red;
-color:white;
+button:active{
+
+transform:translateY(3px);
+
 }
 
-.copy{
-background:#FFD700;
-color:black;
-}
+.table-box{
 
-.search{
-padding:10px;
-width:250px;
-border-radius:6px;
-border:none;
-}
+border:2px solid gold;
 
-.table-container{
-background:white;
-padding:20px;
 border-radius:10px;
+
 overflow:auto;
+
+box-shadow:
+0 0 10px gold,
+inset 0 0 10px rgba(255,215,0,0.3);
+
 }
 
 table{
 
-border-collapse:collapse;
 width:100%;
-color:black;
+border-collapse:collapse;
+
 }
 
 th{
 
 background:linear-gradient(45deg,#FFD700,#b8860b);
-color:black;
+
 padding:12px;
-font-size:15px;
+
+border:2px solid gold;
+
+color:black;
+
 }
 
 td{
 
 padding:10px;
-border-bottom:1px solid #ddd;
+
+border:1px solid gold;
+
+}
+
+tr{
+
+background:#020617;
+
 }
 
 tr:hover{
 
-background:#f1f1f1;
+background:#0f172a;
+
 }
 
-.report-time{
+.report{
 
-margin-bottom:10px;
 color:#FFD700;
+margin-bottom:10px;
+
 }
 
 </style>
 
 </head>
+
 <body>
 
 <div class="container">
 
 <div class="header">
 
-<div class="title">Agent Performance Dashboard</div>
+<div class="title">
+
+Agent Performance Dashboard
+
+</div>
 
 <div class="controls">
 
-<input
-type="text"
-id="search"
-class="search"
-placeholder="Search Employee ID or Name"
-onkeyup="searchTable()"
->
+<input type="text" id="search" placeholder="Search ID or Name" onkeyup="search()">
 
-<button class="copy" onclick="copyImage()">Copy Table</button>
+<button onclick="copyTable()">Copy Table</button>
 
-<button class="reset" onclick="resetPage()">Reset</button>
+<button onclick="reset()">Reset</button>
 
 </div>
 
 </div>
 
-<div class="report-time">
+<div class="report">
 
 Report Time : {{report_time}}
 
 </div>
 
-<div class="table-container" id="tableDiv">
+<div class="table-box" id="tableBox">
 
 <table id="table">
 
@@ -194,16 +244,13 @@ Report Time : {{report_time}}
 
 <script>
 
-function resetPage(){
+function reset(){
 
-localStorage.clear();
-sessionStorage.clear();
-
-window.location.href="/";
+location.href="/";
 
 }
 
-function searchTable(){
+function search(){
 
 let input=document.getElementById("search").value.toLowerCase();
 
@@ -212,32 +259,24 @@ let rows=document.querySelectorAll("#table tbody tr");
 rows.forEach(row=>{
 
 let id=row.cells[0].innerText.toLowerCase();
+
 let name=row.cells[1].innerText.toLowerCase();
 
-if(id.includes(input)||name.includes(input))
-row.style.display="";
-else
-row.style.display="none";
+row.style.display=(id.includes(input)||name.includes(input))?"":"none";
 
 });
 
 }
 
-function copyImage(){
+function copyTable(){
 
-html2canvas(document.getElementById("tableDiv"),{
-
-scale:4
-
-}).then(canvas=>{
+html2canvas(document.getElementById("tableBox"),{scale:4}).then(canvas=>{
 
 canvas.toBlob(blob=>{
 
-const item=new ClipboardItem({"image/png":blob});
+navigator.clipboard.write([new ClipboardItem({'image/png':blob})]);
 
-navigator.clipboard.write([item]);
-
-alert("Table copied as image");
+alert("Copied as image");
 
 });
 
