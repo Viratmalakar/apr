@@ -1,55 +1,108 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Dashboard Result</title>
 
-    <style>
+<title>Agent Performance Report</title>
 
-        body{
-            font-family: Arial;
-            background:#f4f6f8;
-            padding:20px;
-        }
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 
-        .card{
-            background:white;
-            padding:20px;
-            border-radius:10px;
-            box-shadow:0 0 10px rgba(0,0,0,0.1);
-        }
+<style>
 
-        table{
-            width:100%;
-            border-collapse:collapse;
-            margin-top:20px;
-        }
+body{
+font-family:Segoe UI;
+background:linear-gradient(135deg,#e0f2fe,#fce7f3);
+padding:20px;
+}
 
-        th,td{
-            border:1px solid #ccc;
-            padding:8px;
-            text-align:center;
-        }
+.container{
+background:white;
+padding:20px;
+border-radius:15px;
+box-shadow:0 10px 30px rgba(0,0,0,0.2);
+}
 
-        th{
-            background:#2c3e50;
-            color:white;
-        }
+.summary{
+display:flex;
+gap:20px;
+margin-bottom:20px;
+}
 
-        tr:nth-child(even){
-            background:#f2f2f2;
-        }
+.card{
+flex:1;
+padding:15px;
+border-radius:10px;
+background:linear-gradient(135deg,#f0f9ff,#fdf2f8);
+box-shadow:0 5px 15px rgba(0,0,0,0.15);
+text-align:center;
+}
 
-    </style>
+table{
+width:100%;
+border-collapse:collapse;
+}
+
+th,td{
+padding:10px;
+border-bottom:1px solid #ddd;
+text-align:center;
+}
+
+th{
+background:#0ea5e9;
+color:white;
+}
+
+button{
+padding:10px 20px;
+margin-top:10px;
+margin-right:10px;
+border:none;
+border-radius:8px;
+cursor:pointer;
+background:#0284c7;
+color:white;
+}
+
+</style>
 
 </head>
+
 <body>
 
+<div class="container" id="report">
+
+<h2 style="text-align:center;">
+Agent Performance Report
+</h2>
+
+<p style="text-align:center;">
+Report Time: {{report_time}}
+</p>
+
+
+<div class="summary">
 
 <div class="card">
+Total Login<br><b>{{summary.login}}</b>
+</div>
 
-<h2>Dashboard Result</h2>
+<div class="card">
+Total Mature<br><b>{{summary.mature}}</b>
+</div>
 
-<a href="/">Upload New File</a>
+<div class="card">
+IB Mature<br><b>{{summary.ib}}</b>
+</div>
+
+<div class="card">
+OB Mature<br><b>{{summary.ob}}</b>
+</div>
+
+<div class="card">
+Team AHT<br><b>{{summary.aht}}</b>
+</div>
+
+</div>
 
 
 <table>
@@ -57,44 +110,105 @@
 <tr>
 
 <th>Employee ID</th>
-<th>Agent Full Name</th>
-<th>Total Login Time</th>
-<th>Total Net Login</th>
-<th>Total Break</th>
-<th>Total Meeting</th>
+<th>Agent Name</th>
+<th>Total Login</th>
+<th>Net Login</th>
+<th>Break</th>
+<th>Meeting</th>
 <th>Total Mature</th>
 <th>IB Mature</th>
 <th>OB Mature</th>
-<th>Total Talk Time</th>
 <th>AHT</th>
 
 </tr>
 
 
-{% for row in tables %}
+{% for r in rows %}
 
 <tr>
 
-<td>{{row["Employee ID"]}}</td>
-<td>{{row["Agent Full Name"]}}</td>
-<td>{{row["Total Login Time"]}}</td>
-<td>{{row["Total Net Login"]}}</td>
-<td>{{row["Total Break"]}}</td>
-<td>{{row["Total Meeting"]}}</td>
-<td>{{row["Total Mature"]}}</td>
-<td>{{row["IB Mature"]}}</td>
-<td>{{row["OB Mature"]}}</td>
-<td>{{row["Total Talk Time"]}}</td>
-<td>{{row["AHT"]}}</td>
+<td>{{r["Employee ID"]}}</td>
+<td>{{r["Agent Name"]}}</td>
+<td>{{r["Total Login Time"]}}</td>
+<td>{{r["Total Net Login"]}}</td>
+<td>{{r["Total Break"]}}</td>
+<td>{{r["Total Meeting"]}}</td>
+<td>{{r["Total Mature"]}}</td>
+<td>{{r["IB Mature"]}}</td>
+<td>{{r["OB Mature"]}}</td>
+<td>{{r["AHT"]}}</td>
 
 </tr>
 
 {% endfor %}
 
-
 </table>
 
 </div>
+
+
+<button onclick="copyImage()">Copy Full Image</button>
+
+<button onclick="exportExcel()">Export Excel</button>
+
+<button onclick="location.href='/'">Reset</button>
+
+
+<script>
+
+function copyImage(){
+
+html2canvas(document.querySelector("#report"),{
+
+scale:4
+
+}).then(canvas=>{
+
+canvas.toBlob(function(blob){
+
+navigator.clipboard.write([
+
+new ClipboardItem({'image/png': blob})
+
+]);
+
+});
+
+});
+
+}
+
+
+function exportExcel(){
+
+fetch("/export",{
+
+method:"POST",
+headers:{
+"Content-Type":"application/json"
+},
+
+body:JSON.stringify({{rows|tojson}})
+
+})
+.then(res=>res.blob())
+.then(blob=>{
+
+let url=window.URL.createObjectURL(blob);
+
+let a=document.createElement("a");
+
+a.href=url;
+
+a.download="Agent_Report.xlsx";
+
+a.click();
+
+});
+
+}
+
+</script>
 
 </body>
 </html>
