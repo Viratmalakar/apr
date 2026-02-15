@@ -13,10 +13,15 @@ def time_to_seconds(val):
 
     try:
 
-        if pd.isna(val) or val == "-" or val == "":
+        if pd.isna(val) or val == "-" or val == "" or val == 0:
             return 0
 
-        h, m, s = str(val).split(":")
+        parts = str(val).split(":")
+
+        if len(parts) != 3:
+            return 0
+
+        h, m, s = parts
 
         return int(h)*3600 + int(m)*60 + int(s)
 
@@ -27,13 +32,19 @@ def time_to_seconds(val):
 
 def seconds_to_time(sec):
 
-    sec = int(sec)
+    try:
 
-    h = sec // 3600
-    m = (sec % 3600) // 60
-    s = sec % 60
+        sec = int(sec)
 
-    return f"{h:02}:{m:02}:{s:02}"
+        h = sec // 3600
+        m = (sec % 3600) // 60
+        s = sec % 60
+
+        return f"{h:02}:{m:02}:{s:02}"
+
+    except:
+
+        return "00:00:00"
 
 
 # ======================
@@ -47,120 +58,160 @@ def home():
 
 
 # ======================
-# GENERATE REPORT
+# GENERATE
 # ======================
 
 @app.route("/generate", methods=["POST"])
 def generate():
 
-    agent_file = request.files["agent_file"]
-    cdr_file = request.files["cdr_file"]
+    try:
 
-    # read files directly (NO openpyxl save)
+        agent_file = request.files.get("agent_file")
 
-    agent = pd.read_excel(agent_file, header=2, engine="openpyxl")
+        cdr_file = request.files.get("cdr_file")
 
-    cdr = pd.read_excel(cdr_file, header=1, engine="openpyxl")
+        if not agent_file or not cdr_file:
 
-    agent = agent.fillna(0)
-
-    agent.replace("-", 0, inplace=True)
-
-    cdr = cdr.fillna("")
+            return "File upload missing"
 
 
-    # ======================
-    # AGENT DATA
-    # ======================
+        # READ FILES
 
-    df = pd.DataFrame()
+        agent = pd.read_excel(agent_file, header=2, engine="openpyxl")
 
-    df["Employee ID"] = agent.iloc[:, 1].astype(str)
-
-    df["Agent Full Name"] = agent.iloc[:, 2]
-
-    df["Total Login Time"] = agent.iloc[:, 3]
-
-    df["Total Talk Time"] = agent.iloc[:, 5]
+        cdr = pd.read_excel(cdr_file, header=1, engine="openpyxl")
 
 
-    lunch = agent.iloc[:, 19]
+        agent = agent.fillna(0)
 
-    meeting = agent.iloc[:, 20]
+        agent.replace("-", 0, inplace=True)
 
-    short = agent.iloc[:, 22]
-
-    system = agent.iloc[:, 23]
-
-    tea = agent.iloc[:, 24]
+        cdr = cdr.fillna("")
 
 
-    break_sec = (
+        # ======================
+        # AGENT DATA
+        # ======================
 
-        lunch.apply(time_to_seconds)
+        df = pd.DataFrame()
 
-        + short.apply(time_to_seconds)
+        df["Employee ID"] = agent.iloc[:, 1].astype(str)
 
-        + tea.apply(time_to_seconds)
+        df["Agent Full Name"] = agent.iloc[:, 2]
 
-    )
+        df["Total Login Time"] = agent.iloc[:, 3]
 
-
-    meeting_sec = (
-
-        meeting.apply(time_to_seconds)
-
-        + system.apply(time_to_seconds)
-
-    )
+        df["Total Talk Time"] = agent.iloc[:, 5]
 
 
-    login_sec = agent.iloc[:, 3].apply(time_to_seconds)
+        lunch = agent.iloc[:, 19]
 
-    net_sec = login_sec - break_sec
+        meeting = agent.iloc[:, 20]
 
+        short = agent.iloc[:, 22]
 
-    df["Total Break"] = break_sec.apply(seconds_to_time)
+        system = agent.iloc[:, 23]
 
-    df["Total Meeting"] = meeting_sec.apply(seconds_to_time)
-
-    df["Total Net Login"] = net_sec.apply(seconds_to_time)
-
-
-    # ======================
-    # CDR CALCULATION
-    # ======================
-
-    cdr["Employee ID"] = cdr.iloc[:, 1].astype(str)
-
-    cdr["CallType"] = cdr.iloc[:, 6]
-
-    cdr["CallStatus"] = cdr.iloc[:, 25]
+        tea = agent.iloc[:, 24]
 
 
-    matured = cdr[
+        break_sec = (
 
-        cdr["CallStatus"].isin(["CALLMATURED", "TRANSFER"])
+            lunch.apply(time_to_seconds)
 
-    ]
+            + short.apply(time_to_seconds)
 
+            + tea.apply(time_to_seconds)
 
-    total_mature = matured.groupby("Employee ID").size()
-
-
-    ib = matured[
-
-        matured["CallType"] == "CSRINBOUND"
-
-    ].groupby("Employee ID").size()
+        )
 
 
-    df["Total Mature"] = df["Employee ID"].map(total_mature).fillna(0).astype(int)
+        meeting_sec = (
 
-    df["IB Mature"] = df["Employee ID"].map(ib).fillna(0).astype(int)
+            meeting.apply(time_to_seconds)
 
-    df["OB Mature"] = df["Total Mature"] - df["IB Mature"]
+            + system.apply(time_to_seconds)
+
+        )
 
 
-    df["AHT"] = "00:00:00"
+        login_sec = agent.iloc[:, 3].apply(time_to_seconds)
 
+        net_sec = login_sec - break_sec
+
+
+        df["Total Break"] = break_sec.apply(seconds_to_time)
+
+        df["Total Meeting"] = meeting_sec.apply(seconds_to_time)
+
+        df["Total Net Login"] = net_sec.apply(seconds_to_time)
+
+
+        # ======================
+        # CDR DATA
+        # ======================
+
+        cdr["Employee ID"] = cdr.iloc[:, 1].astype(str)
+
+        cdr["CallType"] = cdr.iloc[:, 6]
+
+        cdr["CallStatus"] = cdr.iloc[:, 25]
+
+
+        matured = cdr[
+
+            cdr["CallStatus"].isin(["CALLMATURED", "TRANSFER"])
+
+        ]
+
+
+        total_mature = matured.groupby("Employee ID").size()
+
+        ib = matured[
+
+            matured["CallType"] == "CSRINBOUND"
+
+        ].groupby("Employee ID").size()
+
+
+        df["Total Mature"] = df["Employee ID"].map(total_mature).fillna(0).astype(int)
+
+        df["IB Mature"] = df["Employee ID"].map(ib).fillna(0).astype(int)
+
+        df["OB Mature"] = df["Total Mature"] - df["IB Mature"]
+
+
+        df["AHT"] = "00:00:00"
+
+
+        df = df.sort_values(
+
+            by="Total Net Login",
+
+            key=lambda x: x.apply(time_to_seconds),
+
+            ascending=False
+
+        )
+
+
+        rows = df.to_dict("records")
+
+
+        return render_template("result.html", rows=rows)
+
+
+    except Exception as e:
+
+        return f"ERROR: {str(e)}"
+
+
+# ======================
+# RUN
+# ======================
+
+if __name__ == "__main__":
+
+    port = int(os.environ.get("PORT", 10000))
+
+    app.run(host="0.0.0.0", port=port)
