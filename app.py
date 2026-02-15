@@ -1,199 +1,212 @@
 from flask import Flask, render_template, request
 import pandas as pd
-from datetime import datetime
+import os
+import tempfile
 
 app = Flask(__name__)
 
-# =========================
-# TIME FUNCTIONS
-# =========================
+UPLOAD_FOLDER = tempfile.gettempdir()
 
-def time_to_seconds(t):
+
+# ===============================
+# TIME FORMAT SAFE
+# ===============================
+def format_time(val):
     try:
-        if pd.isna(t):
-            return 0
-        parts = str(t).split(":")
-        if len(parts) != 3:
-            return 0
-        h, m, s = map(int, parts)
-        return h*3600 + m*60 + s
-    except:
-        return 0
+        if pd.isna(val):
+            return "00:00:00"
 
+        if isinstance(val, str):
+            if ":" in val:
+                return val
+            val = float(val)
 
-def seconds_to_time(sec):
-    try:
-        sec = int(sec)
-        h = sec // 3600
-        m = (sec % 3600) // 60
-        s = sec % 60
+        seconds = int(val)
+
+        h = seconds // 3600
+        m = (seconds % 3600) // 60
+        s = seconds % 60
+
         return f"{h:02}:{m:02}:{s:02}"
+
     except:
         return "00:00:00"
 
 
-# =========================
-# HOME
-# =========================
-
+# ===============================
+# MAIN PAGE
+# ===============================
 @app.route("/")
 def index():
     return render_template("index.html")
 
 
-# =========================
-# GENERATE REPORT
-# =========================
-
+# ===============================
+# GENERATE DASHBOARD
+# ===============================
 @app.route("/generate", methods=["POST"])
 def generate():
 
     try:
 
-        agent_file = request.files['agent_file']
-        cdr_file = request.files['cdr_file']
+        ap_file = request.files["agent_performance"]
+        cdr_file = request.files["cdr"]
 
-        # =========================
-        # LOAD AGENT PERFORMANCE
-        # =========================
+        ap_path = os.path.join(UPLOAD_FOLDER, ap_file.filename)
+        cdr_path = os.path.join(UPLOAD_FOLDER, cdr_file.filename)
 
-        agent = pd.read_excel(agent_file, header=None)
+        ap_file.save(ap_path)
+        cdr_file.save(cdr_path)
 
-        # ignore first 2 rows
-        agent = agent.iloc[2:].reset_index(drop=True)
+        # ===============================
+        # READ AGENT PERFORMANCE
+        # Header row = row 3
+        # ===============================
 
-        # replace '-' with 0
-        agent = agent.replace('-', 0)
+        ap = pd.read_excel(ap_path, header=2)
 
-        agent['Employee ID'] = agent.iloc[:,1].astype(str).str.strip()
-        agent['Agent Name'] = agent.iloc[:,2].astype(str).str.strip()
+        ap = ap.replace("-", 0)
 
-        agent['Total Login Time'] = agent.iloc[:,3]
-        agent['Total Talk Time'] = agent.iloc[:,5]
+        # Employee ID
+        ap["Employee ID"] = ap.iloc[:, 1].astype(str).str.strip()
 
-        # Break = T + W + Y
-        break_sec = (
-            agent.iloc[:,19].apply(time_to_seconds) +
-            agent.iloc[:,22].apply(time_to_seconds) +
-            agent.iloc[:,24].apply(time_to_seconds)
+        # Agent Name
+        ap["Agent Name"] = ap.iloc[:, 2]
+
+        # Time columns
+        login = pd.to_timedelta(ap.iloc[:, 3].astype(str), errors="coerce").dt.total_seconds().fillna(0)
+
+        lunch = pd.to_timedelta(ap.iloc[:, 19].astype(str), errors="coerce").dt.total_seconds().fillna(0)
+        short = pd.to_timedelta(ap.iloc[:, 22].astype(str), errors="coerce").dt.total_seconds().fillna(0)
+        tea = pd.to_timedelta(ap.iloc[:, 24].astype(str), errors="coerce").dt.total_seconds().fillna(0)
+
+        meeting = pd.to_timedelta(ap.iloc[:, 20].astype(str), errors="coerce").dt.total_seconds().fillna(0)
+        systemdown = pd.to_timedelta(ap.iloc[:, 23].astype(str), errors="coerce").dt.total_seconds().fillna(0)
+
+        talk = pd.to_timedelta(ap.iloc[:, 5].astype(str), errors="coerce").dt.total_seconds().fillna(0)
+
+        ap["Login"] = login
+        ap["Break"] = lunch + short + tea
+        ap["Meeting"] = meeting + systemdown
+        ap["Net Login"] = login - ap["Break"]
+        ap["Talk"] = talk
+
+        ap_summary = ap[
+            [
+                "Employee ID",
+                "Agent Name",
+                "Login",
+                "Net Login",
+                "Break",
+                "Meeting",
+                "Talk",
+            ]
+        ]
+
+        # ===============================
+        # READ CDR
+        # Header row = row 2
+        # ===============================
+
+        cdr = pd.read_excel(cdr_path, header=1)
+
+        cdr["Employee ID"] = cdr.iloc[:, 1].astype(str).str.strip()
+
+        status = cdr.iloc[:, 25].astype(str).str.upper()
+        calltype = cdr.iloc[:, 6].astype(str).str.upper()
+
+        cdr["Total Mature"] = status.isin(["CALLMATURED", "TRANSFER"]).astype(int)
+
+        cdr["IB Mature"] = (
+            (status.isin(["CALLMATURED", "TRANSFER"]))
+            & (calltype == "CSRINBOUND")
+        ).astype(int)
+
+        mature_summary = cdr.groupby("Employee ID").agg(
+            {
+                "Total Mature": "sum",
+                "IB Mature": "sum",
+            }
+        ).reset_index()
+
+        mature_summary["OB Mature"] = (
+            mature_summary["Total Mature"]
+            - mature_summary["IB Mature"]
         )
 
-        agent['Total Break'] = break_sec.apply(seconds_to_time)
-
-        # Meeting = U + X
-        meeting_sec = (
-            agent.iloc[:,20].apply(time_to_seconds) +
-            agent.iloc[:,23].apply(time_to_seconds)
-        )
-
-        agent['Total Meeting'] = meeting_sec.apply(seconds_to_time)
-
-        # Net Login
-        net_sec = agent.iloc[:,3].apply(time_to_seconds) - break_sec
-
-        agent['Total Net Login'] = net_sec.apply(seconds_to_time)
-
-
-        # =========================
-        # LOAD CDR
-        # =========================
-
-        cdr = pd.read_excel(cdr_file, header=None)
-
-        # ignore first row
-        cdr = cdr.iloc[1:].reset_index(drop=True)
-
-        cdr['Employee ID'] = cdr.iloc[:,1].astype(str).str.strip()
-        cdr['Call Type'] = cdr.iloc[:,6].astype(str).str.strip()
-        cdr['Call Status'] = cdr.iloc[:,25].astype(str).str.strip()
-
-        # Total Mature
-        total_mature = cdr[
-            cdr['Call Status'].isin(['CALLMATURED','TRANSFER'])
-        ].groupby('Employee ID').size().reset_index(name='Total Mature')
-
-        # IB Mature
-        ib_mature = cdr[
-            (cdr['Call Status'].isin(['CALLMATURED','TRANSFER'])) &
-            (cdr['Call Type'] == 'CSRINBOUND')
-        ].groupby('Employee ID').size().reset_index(name='IB Mature')
-
-        cdr_summary = pd.merge(total_mature, ib_mature,
-                               on='Employee ID', how='left')
-
-        cdr_summary['IB Mature'] = cdr_summary['IB Mature'].fillna(0)
-
-        cdr_summary['OB Mature'] = (
-            cdr_summary['Total Mature'] -
-            cdr_summary['IB Mature']
-        )
-
-
-        # =========================
+        # ===============================
         # MERGE
-        # =========================
+        # ===============================
 
-        final = pd.merge(agent, cdr_summary,
-                         on='Employee ID', how='left')
+        final = pd.merge(
+            ap_summary,
+            mature_summary,
+            on="Employee ID",
+            how="left",
+        )
 
-        final['Total Mature'] = final['Total Mature'].fillna(0).astype(int)
-        final['IB Mature'] = final['IB Mature'].fillna(0).astype(int)
-        final['OB Mature'] = final['OB Mature'].fillna(0).astype(int)
+        final = final.fillna(0)
 
-
-        # =========================
+        # ===============================
         # AHT
-        # =========================
+        # ===============================
 
-        def calc_aht(row):
-
-            if row['Total Mature'] == 0:
-                return "00:00:00"
-
-            talk_sec = time_to_seconds(row['Total Talk Time'])
-
-            return seconds_to_time(
-                talk_sec / row['Total Mature']
-            )
-
-        final['AHT'] = final.apply(calc_aht, axis=1)
-
-
-        # =========================
-        # FINAL COLUMNS
-        # =========================
-
-        final = final[[
-            'Employee ID',
-            'Agent Name',
-            'Total Login Time',
-            'Total Net Login',
-            'Total Break',
-            'Total Meeting',
-            'Total Mature',
-            'IB Mature',
-            'OB Mature',
-            'Total Talk Time',
-            'AHT'
-        ]]
-
-        report_time = datetime.now().strftime(
-            "%d %b %Y %I:%M %p"
+        final["AHT"] = final.apply(
+            lambda x:
+            x["Talk"] / x["Total Mature"]
+            if x["Total Mature"] > 0 else 0,
+            axis=1
         )
 
-        return render_template(
-            "result.html",
-            rows=final.to_dict("records"),
-            report_time=report_time
+        # ===============================
+        # FORMAT TIME
+        # ===============================
+
+        final["Login"] = final["Login"].apply(format_time)
+        final["Net Login"] = final["Net Login"].apply(format_time)
+        final["Break"] = final["Break"].apply(format_time)
+        final["Meeting"] = final["Meeting"].apply(format_time)
+        final["AHT"] = final["AHT"].apply(format_time)
+
+        # ===============================
+        # REMOVE JUNK HEADER ROW
+        # ===============================
+
+        final = final[
+            final["Employee ID"].str.lower() != "agent name"
+        ]
+
+        # ===============================
+        # RENAME HEADERS
+        # ===============================
+
+        final = final.rename(
+            columns={
+                "Employee ID": "ID",
+                "Agent Name": "Name",
+                "Login": "Login",
+                "Net Login": "Net Login",
+                "Break": "Break",
+                "Meeting": "Meeting",
+                "AHT": "AHT",
+                "Total Mature": "Total Mature",
+                "IB Mature": "IB Mature",
+                "OB Mature": "OB Mature",
+            }
         )
+
+        data = final.to_dict(orient="records")
+
+        return render_template("result.html", data=data)
 
     except Exception as e:
-        return f"Error: {str(e)}"
+
+        return str(e)
 
 
-# =========================
+# ===============================
 # RUN
-# =========================
+# ===============================
 
 if __name__ == "__main__":
     app.run(debug=True)
