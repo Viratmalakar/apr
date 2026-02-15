@@ -1,134 +1,31 @@
-<!DOCTYPE html>
-<html>
-<head>
+<table border="1">
 
-    <title>Agent Performance Report</title>
+<tr>
+<th>ID</th>
+<th>Name</th>
+<th>Login</th>
+<th>Net Login</th>
+<th>Break</th>
+<th>Meeting</th>
+<th>AHT</th>
+<th>Total Mature</th>
+<th>IB Mature</th>
+<th>OB Mature</th>
+</tr>
 
-    <style>
-
-        body{
-            font-family: Arial;
-            background:#f4f6f8;
-            padding:20px;
-        }
-
-        h2{
-            text-align:center;
-            margin-bottom:20px;
-        }
-
-        table{
-            border-collapse:collapse;
-            width:100%;
-            background:white;
-            box-shadow:0 0 10px rgba(0,0,0,0.1);
-        }
-
-        th, td{
-            border:1px solid #ddd;
-            padding:8px;
-            text-align:center;
-        }
-
-        th{
-            background:#2c3e50;
-            color:white;
-            position:sticky;
-            top:0;
-        }
-
-        tr:nth-child(even){
-            background:#f2f2f2;
-        }
-
-        tr:hover{
-            background:#e6f2ff;
-        }
-
-        .container{
-            overflow-x:auto;
-        }
-
-        .btn{
-            margin-top:15px;
-            padding:10px 20px;
-            background:#27ae60;
-            color:white;
-            border:none;
-            cursor:pointer;
-            border-radius:5px;
-        }
-
-        .btn:hover{
-            background:#219150;
-        }
-
-    </style>
-
-</head>
-<body>
-
-<h2>Agent Performance Report</h2>
-
-<div class="container">
-
-<table>
-
-    <thead>
-
-        <tr>
-
-            <th>Employee ID</th>
-            <th>Agent Name</th>
-            <th>Total Login Time</th>
-            <th>Total Break</th>
-            <th>Total Meeting</th>
-            <th>Total Net Login</th>
-            <th>Total Talk Time</th>
-            <th>Total Mature</th>
-            <th>IB Mature</th>
-            <th>OB Mature</th>
-            <th>AHT</th>
-
-        </tr>
-
-    </thead>
-
-    <tbody>
-
-        {% for row in data %}
-
-        <tr>
-
-            <td>{{row["Employee ID"]}}</td>
-            <td>{{row["Agent Name"]}}</td>
-            <td>{{row["Total Login Time"]}}</td>
-            <td>{{row["Total Break"]}}</td>
-            <td>{{row["Total Meeting"]}}</td>
-            <td>{{row["Total Net Login"]}}</td>
-            <td>{{row["Total Talk Time"]}}</td>
-            <td>{{row["Total Mature"]}}</td>
-            <td>{{row["IB Mature"]}}</td>
-            <td>{{row["OB Mature"]}}</td>
-            <td>{{row["AHT"]}}</td>
-
-        </tr>
-
-        {% endfor %}
-
-    </tbody>
+{% for row in rows %}
+<tr>
+<td>{{row["Employee ID"]}}</td>
+<td>{{row["Agent Name"]}}</td>
+<td>{{row["Total Login Time"]}}</td>
+<td>{{row["Total Net Login"]}}</td>
+<td>{{row["Total Break"]}}</td>
+<td>{{row["Total Meeting"]}}</td>
+<td>{{row["AHT"]}}</td>
+<td>{{row["Total Mature"]}}</td>
+<td>{{row["IB Mature"]}}</td>
+<td>{{row["OB Mature"]}}</td>
+</tr>
+{% endfor %}
 
 </table>
-
-</div>
-
-<br>
-
-<center>
-    <button onclick="window.location.href='/'" class="btn">
-        Upload New Report
-    </button>
-</center>
-
-</body>
-</html>
