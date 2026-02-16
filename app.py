@@ -1,101 +1,197 @@
-import pandas as pd
 from flask import Flask, render_template, request
+import pandas as pd
 import os
 
 app = Flask(__name__)
 
+UPLOAD_FOLDER = "uploads"
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+
+# ================================
+# TIME CONVERSION FUNCTIONS
+# ================================
+
 def time_to_seconds(t):
     try:
-        return pd.to_timedelta(t).total_seconds()
+        if pd.isna(t):
+            return 0
+        parts = str(t).split(":")
+        if len(parts) != 3:
+            return 0
+        return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
     except:
         return 0
 
-def seconds_to_time(s):
-    return str(pd.to_timedelta(int(s), unit='s'))
 
-@app.route('/')
+def seconds_to_time(seconds):
+    seconds = int(seconds)
+    h = seconds // 3600
+    m = (seconds % 3600) // 60
+    s = seconds % 60
+    return f"{h:02}:{m:02}:{s:02}"
+
+
+# ================================
+# HOME PAGE
+# ================================
+
+@app.route("/")
 def index():
     return render_template("upload.html")
 
-@app.route('/generate', methods=['POST'])
+
+# ================================
+# GENERATE REPORT
+# ================================
+
+@app.route("/generate", methods=["POST"])
 def generate():
 
-    agent_file = request.files['agent_file']
-    cdr_file = request.files['cdr_file']
+    agent_file = request.files["agent_file"]
+    cdr_file = request.files["cdr_file"]
 
-    if not agent_file or not cdr_file:
-        return "Upload both files"
+    agent_path = os.path.join(UPLOAD_FOLDER, agent_file.filename)
+    cdr_path = os.path.join(UPLOAD_FOLDER, cdr_file.filename)
 
-    agent = pd.read_excel(agent_file, header=2)
-    cdr = pd.read_excel(cdr_file, header=1)
+    agent_file.save(agent_path)
+    cdr_file.save(cdr_path)
 
-    agent = agent.fillna("00:00:00")
+    # ============================
+    # READ AGENT PERFORMANCE
+    # ignore top 2 rows
+    # ============================
 
-    # BREAK
-    agent["Total Break Seconds"] = (
-        agent["Lunch Break"].apply(time_to_seconds) +
-        agent["Tea Break"].apply(time_to_seconds) +
-        agent["Short Break"].apply(time_to_seconds)
+    agent = pd.read_excel(agent_path, skiprows=2)
+
+    agent.columns = agent.columns.str.strip()
+
+    agent.replace("-", "00:00:00", inplace=True)
+
+    agent["Employee ID"] = agent["Employee ID"].astype(str).str.strip()
+
+    # ============================
+    # BREAK CALCULATION
+    # ============================
+
+    agent["Total Break"] = (
+        agent["LunchBreak"].apply(time_to_seconds)
+        + agent["TeaBreak"].apply(time_to_seconds)
+        + agent["ShortBreak"].apply(time_to_seconds)
     )
 
-    # MEETING
-    agent["Total Meeting Seconds"] = (
-        agent["Meeting"].apply(time_to_seconds) +
-        agent["System Down"].apply(time_to_seconds)
+    agent["Total Meeting"] = (
+        agent["Meeting"].apply(time_to_seconds)
+        + agent["SystemDown"].apply(time_to_seconds)
     )
 
-    # LOGIN
-    agent["Login Seconds"] = agent["Total Login Time"].apply(time_to_seconds)
+    agent["Total Login Seconds"] = agent["Total Login Time"].apply(time_to_seconds)
 
-    # NET LOGIN
     agent["Net Login Seconds"] = (
-        agent["Login Seconds"] - agent["Total Break Seconds"]
+        agent["Total Login Seconds"] - agent["Total Break"]
     )
 
-    # TALK TIME
-    agent["Talk Seconds"] = agent["Total Talk Time"].apply(time_to_seconds)
+    agent["Total Talk Seconds"] = agent["Total Talk Time"].apply(time_to_seconds)
 
-    # CDR FILTER
-    mature = cdr[
-        (cdr["Call Status"].isin(["CALLMATURED", "TRANSFER"]))
+    # ============================
+    # READ CDR
+    # ignore top 1 row
+    # ============================
+
+    cdr = pd.read_excel(cdr_path, skiprows=1)
+
+    cdr.columns = cdr.columns.str.strip()
+
+    cdr["Employee ID"] = cdr["Username"].astype(str).str.strip()
+
+    cdr["CallType"] = cdr["CallType"].astype(str).str.upper()
+
+    cdr["CallMatured"] = pd.to_numeric(cdr["CallMatured"], errors="coerce").fillna(0)
+
+    cdr["Transfer"] = pd.to_numeric(cdr["Transfer"], errors="coerce").fillna(0)
+
+    cdr["IsMature"] = (
+        (cdr["CallMatured"] == 1) | (cdr["Transfer"] == 1)
+    )
+
+    cdr["IsIBMature"] = (
+        (cdr["IsMature"]) & (cdr["CallType"] == "CSRINBOUND")
+    )
+
+    # ============================
+    # GROUP CDR DATA
+    # ============================
+
+    total_mature = cdr.groupby("Employee ID")["IsMature"].sum().reset_index()
+
+    ib_mature = cdr.groupby("Employee ID")["IsIBMature"].sum().reset_index()
+
+    total_mature.columns = ["Employee ID", "Total Mature"]
+
+    ib_mature.columns = ["Employee ID", "IB Mature"]
+
+    calls = pd.merge(total_mature, ib_mature, on="Employee ID", how="outer").fillna(0)
+
+    calls["OB Mature"] = calls["Total Mature"] - calls["IB Mature"]
+
+    # ============================
+    # MERGE AGENT + CDR
+    # ============================
+
+    final = pd.merge(agent, calls, on="Employee ID", how="left").fillna(0)
+
+    # ============================
+    # AHT CALCULATION
+    # ============================
+
+    final["AHT"] = final.apply(
+        lambda x:
+        seconds_to_time(
+            int(x["Total Talk Seconds"] / x["Total Mature"])
+        ) if x["Total Mature"] > 0 else "00:00:00",
+        axis=1
+    )
+
+    # ============================
+    # FINAL FORMAT
+    # ============================
+
+    final["Total Login"] = final["Total Login Seconds"].apply(seconds_to_time)
+
+    final["Total Net Login"] = final["Net Login Seconds"].apply(seconds_to_time)
+
+    final["Total Break"] = final["Total Break"].apply(seconds_to_time)
+
+    final["Total Meeting"] = final["Total Meeting"].apply(seconds_to_time)
+
+    final = final[
+        [
+            "Employee ID",
+            "Agent Full Name",
+            "Total Login",
+            "Total Net Login",
+            "Total Break",
+            "Total Meeting",
+            "AHT",
+            "Total Mature",
+            "IB Mature",
+            "OB Mature",
+        ]
     ]
 
-    ib = mature[mature["CallType"] == "CSRINBOUND"]
-    ob = mature[mature["CallType"] != "CSRINBOUND"]
+    final.rename(columns={
+        "Employee ID": "Employee ID",
+        "Agent Full Name": "Agent Name"
+    }, inplace=True)
 
-    total_mature = mature.groupby("Username").size()
-    ib_mature = ib.groupby("Username").size()
-    ob_mature = ob.groupby("Username").size()
+    data = final.to_dict(orient="records")
 
-    result = []
+    return render_template("result.html", data=data)
 
-    for index, row in agent.iterrows():
 
-        emp = row["Employee ID"]
-        name = row["Agent Full Name"]
-
-        tm = total_mature.get(emp, 0)
-
-        talk = row["Talk Seconds"]
-
-        aht = seconds_to_time(talk/tm) if tm > 0 else "00:00:00"
-
-        result.append({
-
-            "Employee ID": emp,
-            "Agent Name": name,
-            "Total Login": seconds_to_time(row["Login Seconds"]),
-            "Total Net Login": seconds_to_time(row["Net Login Seconds"]),
-            "Total Break": seconds_to_time(row["Total Break Seconds"]),
-            "Total Meeting": seconds_to_time(row["Total Meeting Seconds"]),
-            "AHT": aht,
-            "Total Mature": tm,
-            "IB Mature": ib_mature.get(emp, 0),
-            "OB Mature": ob_mature.get(emp, 0)
-
-        })
-
-    return render_template("result.html", data=result)
+# ================================
+# RUN
+# ================================
 
 if __name__ == "__main__":
-    app.run()
+    app.run(host="0.0.0.0", port=10000)
