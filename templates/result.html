@@ -1,69 +1,42 @@
 <!DOCTYPE html>
 <html>
+
 <head>
 
-<title>Dashboard Result</title>
-
-<script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
+<title>Result</title>
 
 <style>
 
 body{
-
-background:#0f2027;
-font-family:Segoe UI;
+background:#020617;
 color:white;
-padding:20px;
-
-}
-
-h2{
-
-color:#FFD700;
-
+font-family:Arial;
 }
 
 table{
-
 border-collapse:collapse;
-width:100%;
-background:#1e2a38;
-box-shadow:0 0 20px black;
-
+width:95%;
+margin:auto;
 }
 
 th{
-
-background:linear-gradient(45deg,#FFD700,#b8860b);
+background:#bfa100;
 color:black;
-padding:12px;
-border:2px solid black;
-
+padding:10px;
 }
 
 td{
-
-padding:10px;
-border:1px solid #555;
-
+padding:8px;
+border:1px solid white;
 }
 
 button{
-
-padding:10px 20px;
-margin:10px;
+margin:20px;
+padding:10px;
 background:gold;
 border:none;
+font-weight:bold;
 cursor:pointer;
-
-}
-
-input{
-
-padding:10px;
-margin:10px;
-width:300px;
-
 }
 
 </style>
@@ -72,24 +45,26 @@ width:300px;
 
 <body>
 
+<center>
+
 <h2>Agent Performance Report</h2>
 
-<input type="text" id="search" placeholder="Search Employee ID or Name">
+<a href="/download">
+<button>Download Excel</button>
+</a>
 
-<button onclick="resetPage()">Reset</button>
+<a href="/reset">
+<button>Reset</button>
+</a>
 
-<button onclick="copyPNG()">Copy Table</button>
+</center>
 
-<button onclick="downloadExcel()">Download Excel</button>
-
-<div id="tableDiv">
-
-<table id="table">
+<table>
 
 <tr>
 
-{% for h in headers %}
-<th>{{h}}</th>
+{% for header in headers %}
+<th>{{header}}</th>
 {% endfor %}
 
 </tr>
@@ -98,8 +73,8 @@ width:300px;
 
 <tr>
 
-{% for h in headers %}
-<td>{{row[h]}}</td>
+{% for header in headers %}
+<td>{{row[header]}}</td>
 {% endfor %}
 
 </tr>
@@ -107,70 +82,6 @@ width:300px;
 {% endfor %}
 
 </table>
-
-</div>
-
-<script>
-
-document.getElementById("search").addEventListener("keyup", function(){
-
-var value=this.value.toLowerCase();
-var rows=document.querySelectorAll("#table tr");
-
-rows.forEach(function(row,i){
-
-if(i===0)return;
-
-row.style.display=row.innerText.toLowerCase().includes(value)?"":"none";
-
-});
-
-});
-
-
-function resetPage(){
-
-window.location="/";
-
-}
-
-
-function downloadExcel(){
-
-window.location="/download";
-
-}
-
-
-function copyPNG(){
-
-html2canvas(document.querySelector("#tableDiv"),{
-
-scale:3
-
-}).then(canvas=>{
-
-canvas.toBlob(function(blob){
-
-navigator.clipboard.write([
-
-new ClipboardItem({
-
-"image/png":blob
-
-})
-
-]);
-
-alert("Table copied as PNG");
-
-});
-
-});
-
-}
-
-</script>
 
 </body>
 </html>
