@@ -2,57 +2,49 @@
 <html>
 <head>
 
-<title>Agent Dashboard Upload</title>
+<title>Agent Performance Dashboard</title>
 
 <style>
 
 body{
-background:#0f172a;
+background:#020a1f;
 color:white;
 font-family:Arial;
-display:flex;
-justify-content:center;
-align-items:center;
-height:100vh;
+text-align:center;
 }
 
 .box{
-
-background:#1e293b;
+margin-top:100px;
+background:#071c44;
 padding:40px;
+display:inline-block;
 border-radius:15px;
-box-shadow:0 0 30px rgba(0,0,0,0.6);
-width:400px;
-text-align:center;
-
+box-shadow:0px 0px 25px gold;
 }
 
 input{
-
-margin:15px;
+margin:10px;
 padding:10px;
-width:90%;
-background:#0f172a;
+border-radius:8px;
+border:2px solid gold;
+background:black;
 color:white;
-border:1px solid gold;
-
 }
 
 button{
 
-padding:12px 30px;
 background:gold;
+color:black;
+padding:12px 25px;
 border:none;
+border-radius:10px;
 font-weight:bold;
 cursor:pointer;
-border-radius:10px;
 
 }
 
 button:hover{
-
 background:orange;
-
 }
 
 </style>
@@ -61,25 +53,23 @@ background:orange;
 
 <body>
 
+<h1 style="color:gold">Agent Performance Dashboard</h1>
+
 <div class="box">
 
-<h2 style="color:gold">Upload Reports</h2>
+<form action="/generate" method="POST" enctype="multipart/form-data">
 
-<form action="/generate" method="post" enctype="multipart/form-data">
+<h3>Upload Agent Performance File</h3>
 
-Agent Performance
+<input type="file" name="agent_file" required>
 
-<input type="file" name="agent" required>
+<h3>Upload CDR File</h3>
 
-<br>
+<input type="file" name="cdr_file" required>
 
-CDR Report
+<br><br>
 
-<input type="file" name="cdr" required>
-
-<br>
-
-<button type="submit">Generate Dashboard</button>
+<button type="submit">Generate Report</button>
 
 </form>
 
