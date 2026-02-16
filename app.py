@@ -1,149 +1,202 @@
-import os
+from flask import Flask, render_template, request, send_file, session, redirect, url_for
 import pandas as pd
-from flask import Flask, render_template, request
+import os
+from datetime import datetime
 
 app = Flask(__name__)
+app.secret_key = "final_project_secret"
+
+OUTPUT_FILE = "Agent_Performance_Report.xlsx"
 
 
-# ===============================
-# SAFE TIME FUNCTION
-# ===============================
-def safe_time_to_seconds(val):
+# =========================
+# TIME FORMAT FUNCTION
+# =========================
 
+def format_time(seconds):
     try:
-
-        if pd.isna(val):
-            return 0
-
-        val = str(val).strip()
-
-        if val in ["", "-", "nan", "NaT"]:
-            return 0
-
-        h, m, s = val.split(":")
-
-        return int(h)*3600 + int(m)*60 + int(s)
-
+        seconds = int(seconds)
+        h = seconds // 3600
+        m = (seconds % 3600) // 60
+        s = seconds % 60
+        return f"{h:02d}:{m:02d}:{s:02d}"
     except:
+        return "00:00:00"
+
+
+def time_to_seconds(val):
+
+    if pd.isna(val):
         return 0
 
+    try:
+        parts = str(val).split(":")
+        if len(parts) == 3:
+            return int(parts[0])*3600 + int(parts[1])*60 + int(parts[2])
+    except:
+        pass
 
-def seconds_to_time(sec):
-
-    sec = int(sec)
-
-    h = sec // 3600
-    m = (sec % 3600) // 60
-    s = sec % 60
-
-    return f"{h:02}:{m:02}:{s:02}"
+    return 0
 
 
-# ===============================
-# CLEAN EXCEL
-# ===============================
-def clean_excel(file, skip):
+# =========================
+# PROCESS AGENT PERFORMANCE
+# =========================
 
-    df = pd.read_excel(file, header=None, skiprows=skip)
+def process_agent(file):
 
-    df = df.fillna("")
+    df = pd.read_excel(file, skiprows=2)
+
+    df = df.replace("-", "00:00:00")
+
+    df = df.rename(columns={
+        df.columns[1]: "Employee ID",
+        df.columns[2]: "Agent Name",
+        df.columns[3]: "Login",
+        df.columns[19]: "Lunch",
+        df.columns[22]: "ShortBreak",
+        df.columns[24]: "TeaBreak",
+        df.columns[20]: "Meeting",
+        df.columns[23]: "SystemDown",
+        df.columns[5]: "TalkTime"
+    })
+
+    df["Employee ID"] = df["Employee ID"].astype(str)
+
+    df["Login_sec"] = df["Login"].apply(time_to_seconds)
+    df["Lunch_sec"] = df["Lunch"].apply(time_to_seconds)
+    df["Short_sec"] = df["ShortBreak"].apply(time_to_seconds)
+    df["Tea_sec"] = df["TeaBreak"].apply(time_to_seconds)
+    df["Meeting_sec"] = df["Meeting"].apply(time_to_seconds)
+    df["System_sec"] = df["SystemDown"].apply(time_to_seconds)
+    df["Talk_sec"] = df["TalkTime"].apply(time_to_seconds)
+
+    df["Break_sec"] = df["Lunch_sec"] + df["Short_sec"] + df["Tea_sec"]
+    df["NetLogin_sec"] = df["Login_sec"] - df["Break_sec"]
+    df["TotalMeeting_sec"] = df["Meeting_sec"] + df["System_sec"]
+
+    df = df[["Employee ID","Agent Name","Login_sec","NetLogin_sec","Break_sec","TotalMeeting_sec","Talk_sec"]]
 
     return df
 
 
-# ===============================
-# HOME PAGE
-# ===============================
+# =========================
+# PROCESS CDR REPORT
+# =========================
+
+def process_cdr(file):
+
+    df = pd.read_excel(file, skiprows=1)
+
+    df = df.rename(columns={
+        df.columns[1]: "Employee ID",
+        df.columns[6]: "CallType",
+        df.columns[25]: "CallStatus"
+    })
+
+    df["Employee ID"] = df["Employee ID"].astype(str)
+
+    df["Mature"] = df["CallStatus"].isin(["CALLMATURED","TRANSFER"])
+
+    total = df[df["Mature"]].groupby("Employee ID").size()
+
+    inbound = df[(df["Mature"]) & (df["CallType"]=="CSRINBOUND")].groupby("Employee ID").size()
+
+    result = pd.DataFrame({
+        "Total Mature": total,
+        "IB Mature": inbound
+    }).fillna(0)
+
+    result["OB Mature"] = result["Total Mature"] - result["IB Mature"]
+
+    result.reset_index(inplace=True)
+
+    return result
+
+
+# =========================
+# MERGE REPORTS
+# =========================
+
+def merge_reports(agent_df, cdr_df):
+
+    df = pd.merge(agent_df, cdr_df, on="Employee ID", how="left")
+
+    df = df.fillna(0)
+
+    df["AHT_sec"] = df["Talk_sec"] / df["Total Mature"].replace(0,1)
+
+    final = pd.DataFrame({
+
+        "Employee ID": df["Employee ID"],
+        "Agent Name": df["Agent Name"],
+        "Total Login": df["Login_sec"].apply(format_time),
+        "Total Net Login": df["NetLogin_sec"].apply(format_time),
+        "Total Break": df["Break_sec"].apply(format_time),
+        "Total Meeting": df["TotalMeeting_sec"].apply(format_time),
+        "AHT": df["AHT_sec"].apply(format_time),
+        "Total Mature": df["Total Mature"].astype(int),
+        "IB Mature": df["IB Mature"].astype(int),
+        "OB Mature": df["OB Mature"].astype(int)
+
+    })
+
+    return final
+
+
+# =========================
+# ROUTES
+# =========================
+
 @app.route("/")
 def index():
 
     return render_template("upload.html")
 
 
-# ===============================
-# GENERATE REPORT
-# ===============================
 @app.route("/generate", methods=["POST"])
 def generate():
 
-    agent_file = request.files["agent"]
-    cdr_file = request.files["cdr"]
+    agent_file = request.files.get("agent_file")
+    cdr_file = request.files.get("cdr_file")
 
-    agent_df = clean_excel(agent_file, 2)
-    cdr_df = clean_excel(cdr_file, 1)
+    if not agent_file or not cdr_file:
+        return "Upload both files", 400
 
-    agent = pd.DataFrame()
+    agent_df = process_agent(agent_file)
+    cdr_df = process_cdr(cdr_file)
 
-    agent["Employee ID"] = agent_df.iloc[:,1].astype(str)
-    agent["Agent Name"] = agent_df.iloc[:,2].astype(str)
+    final_df = merge_reports(agent_df, cdr_df)
 
-    login = agent_df.iloc[:,3].apply(safe_time_to_seconds)
+    final_df.to_excel(OUTPUT_FILE, index=False)
 
-    lunch = agent_df.iloc[:,19].apply(safe_time_to_seconds)
-    short = agent_df.iloc[:,22].apply(safe_time_to_seconds)
-    tea = agent_df.iloc[:,24].apply(safe_time_to_seconds)
+    session["report_ready"] = True
 
-    meeting = agent_df.iloc[:,20].apply(safe_time_to_seconds)
-    system = agent_df.iloc[:,23].apply(safe_time_to_seconds)
-
-    talk = agent_df.iloc[:,5].apply(safe_time_to_seconds)
-
-    break_sec = lunch + short + tea
-    meeting_sec = meeting + system
-
-    net_sec = login - break_sec
-
-    agent["Total Login"] = login.apply(seconds_to_time)
-    agent["Total Net Login"] = net_sec.apply(seconds_to_time)
-    agent["Total Break"] = break_sec.apply(seconds_to_time)
-    agent["Total Meeting"] = meeting_sec.apply(seconds_to_time)
-
-    agent["TalkSec"] = talk
+    return render_template(
+        "result.html",
+        tables=[final_df.to_dict(orient="records")],
+        report_time=datetime.now().strftime("%d %b %Y %I:%M %p")
+    )
 
 
-    # ==========================
-    # CDR PROCESS
-    # ==========================
+@app.route("/download")
+def download():
 
-    cdr = pd.DataFrame()
+    if os.path.exists(OUTPUT_FILE):
+        return send_file(OUTPUT_FILE, as_attachment=True)
 
-    cdr["Employee ID"] = cdr_df.iloc[:,1].astype(str)
-    cdr["CallType"] = cdr_df.iloc[:,6].astype(str).str.upper()
-    cdr["CallStatus"] = cdr_df.iloc[:,25].astype(str).str.upper()
-
-    matured = cdr["CallStatus"].isin(["CALLMATURED","TRANSFER"])
-
-    total = cdr[matured].groupby("Employee ID").size()
-    ib = cdr[matured & (cdr["CallType"]=="CSRINBOUND")].groupby("Employee ID").size()
-
-    result = agent.copy()
-
-    result["Total Mature"] = result["Employee ID"].map(total).fillna(0)
-    result["IB Mature"] = result["Employee ID"].map(ib).fillna(0)
-    result["OB Mature"] = result["Total Mature"] - result["IB Mature"]
+    return redirect("/")
 
 
-    def calc_aht(row):
+@app.route("/reset")
+def reset():
 
-        if row["Total Mature"] == 0:
-            return "00:00:00"
+    session.clear()
 
-        return seconds_to_time(row["TalkSec"] / row["Total Mature"])
-
-
-    result["AHT"] = result.apply(calc_aht, axis=1)
-
-    result = result.drop(columns=["TalkSec"])
-
-    result = result.sort_values("Employee ID")
-
-    return render_template("result.html", data=result.to_dict("records"))
+    return redirect("/")
 
 
-# ===============================
-# CRITICAL FIX FOR RENDER
-# ===============================
+# =========================
 
-port = int(os.environ.get("PORT", 10000))
-
-app.run(host="0.0.0.0", port=port)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=10000)
