@@ -43,10 +43,6 @@ cursor:pointer;
 
 }
 
-button:hover{
-background:orange;
-}
-
 </style>
 
 </head>
@@ -59,11 +55,17 @@ background:orange;
 
 <form action="/generate" method="POST" enctype="multipart/form-data">
 
-<h3>Upload Agent Performance File</h3>
+Agent Performance File
+
+<br>
 
 <input type="file" name="agent_file" required>
 
-<h3>Upload CDR File</h3>
+<br>
+
+CDR File
+
+<br>
 
 <input type="file" name="cdr_file" required>
 
