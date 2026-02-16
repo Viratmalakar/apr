@@ -1,42 +1,42 @@
 <!DOCTYPE html>
 <html>
-
 <head>
 
-<title>Result</title>
+<title>Agent Performance Report</title>
 
 <style>
 
 body{
-background:#020617;
+background:#020a1f;
 color:white;
 font-family:Arial;
+text-align:center;
 }
 
 table{
 border-collapse:collapse;
-width:95%;
 margin:auto;
+background:white;
+color:black;
+}
+
+th,td{
+padding:10px;
+border:1px solid black;
 }
 
 th{
-background:#bfa100;
-color:black;
-padding:10px;
-}
-
-td{
-padding:8px;
-border:1px solid white;
+background:gold;
 }
 
 button{
-margin:20px;
-padding:10px;
+
 background:gold;
+padding:10px;
+margin:10px;
 border:none;
-font-weight:bold;
 cursor:pointer;
+
 }
 
 </style>
@@ -45,27 +45,32 @@ cursor:pointer;
 
 <body>
 
-<center>
+<h1>Agent Performance Report</h1>
 
-<h2>Agent Performance Report</h2>
+Report Time: {{report_time}}
 
-<a href="/download">
-<button>Download Excel</button>
-</a>
+<br>
 
-<a href="/reset">
-<button>Reset</button>
-</a>
+<button onclick="window.location='/download'">Download Excel</button>
 
-</center>
+<button onclick="window.location='/reset'">Reset</button>
+
+<br><br>
 
 <table>
 
 <tr>
 
-{% for header in headers %}
-<th>{{header}}</th>
-{% endfor %}
+<th>Employee ID</th>
+<th>Agent Name</th>
+<th>Total Login</th>
+<th>Total Net Login</th>
+<th>Total Break</th>
+<th>Total Meeting</th>
+<th>AHT</th>
+<th>Total Mature</th>
+<th>IB Mature</th>
+<th>OB Mature</th>
 
 </tr>
 
@@ -73,8 +78,8 @@ cursor:pointer;
 
 <tr>
 
-{% for header in headers %}
-<td>{{row[header]}}</td>
+{% for col in row %}
+<td>{{col}}</td>
 {% endfor %}
 
 </tr>
