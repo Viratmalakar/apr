@@ -1,131 +1,101 @@
-from flask import Flask, render_template, request, send_file
 import pandas as pd
+from flask import Flask, render_template, request
 import os
-from datetime import datetime
 
 app = Flask(__name__)
 
-OUTPUT = "report.xlsx"
-
-
-def format_time(val):
+def time_to_seconds(t):
     try:
-        val = pd.to_timedelta(val)
-        total_seconds = int(val.total_seconds())
-        h = total_seconds // 3600
-        m = (total_seconds % 3600) // 60
-        s = total_seconds % 60
-        return f"{h:02}:{m:02}:{s:02}"
+        return pd.to_timedelta(t).total_seconds()
     except:
-        return "00:00:00"
+        return 0
 
+def seconds_to_time(s):
+    return str(pd.to_timedelta(int(s), unit='s'))
 
-@app.route("/")
+@app.route('/')
 def index():
     return render_template("upload.html")
 
-
-@app.route("/generate", methods=["POST"])
+@app.route('/generate', methods=['POST'])
 def generate():
 
-    agent_file = request.files.get("agent_file")
-    cdr_file = request.files.get("cdr_file")
+    agent_file = request.files['agent_file']
+    cdr_file = request.files['cdr_file']
 
     if not agent_file or not cdr_file:
-        return "Upload both files", 400
-
-    # ==========================
-    # READ AGENT PERFORMANCE
-    # ==========================
+        return "Upload both files"
 
     agent = pd.read_excel(agent_file, header=2)
-
-    agent = agent.replace("-", "00:00:00")
-
-    agent["Total Break"] = (
-        pd.to_timedelta(agent["LUNCHBREAK"]) +
-        pd.to_timedelta(agent["SHORTBREAK"]) +
-        pd.to_timedelta(agent["TEABREAK"])
-    )
-
-    agent["Total Meeting"] = (
-        pd.to_timedelta(agent["MEETING"]) +
-        pd.to_timedelta(agent["SYSTEMDOWN"])
-    )
-
-    agent["Total Net Login"] = (
-        pd.to_timedelta(agent["LOGIN"]) -
-        agent["Total Break"]
-    )
-
-    agent["Total Break"] = agent["Total Break"].astype(str)
-    agent["Total Meeting"] = agent["Total Meeting"].astype(str)
-    agent["Total Net Login"] = agent["Total Net Login"].astype(str)
-
-    agent_df = pd.DataFrame({
-        "Employee ID": agent["EMPLOYEEID"],
-        "Agent Name": agent["NAME"],
-        "Total Login": agent["LOGIN"],
-        "Total Net Login": agent["Total Net Login"],
-        "Total Break": agent["Total Break"],
-        "Total Meeting": agent["Total Meeting"]
-    })
-
-    # ==========================
-    # READ CDR
-    # ==========================
-
     cdr = pd.read_excel(cdr_file, header=1)
 
-    cdr = cdr[
-        (cdr["CALLSTATUS"].isin(["CALLMATURED", "TRANSFER"]))
+    agent = agent.fillna("00:00:00")
+
+    # BREAK
+    agent["Total Break Seconds"] = (
+        agent["Lunch Break"].apply(time_to_seconds) +
+        agent["Tea Break"].apply(time_to_seconds) +
+        agent["Short Break"].apply(time_to_seconds)
+    )
+
+    # MEETING
+    agent["Total Meeting Seconds"] = (
+        agent["Meeting"].apply(time_to_seconds) +
+        agent["System Down"].apply(time_to_seconds)
+    )
+
+    # LOGIN
+    agent["Login Seconds"] = agent["Total Login Time"].apply(time_to_seconds)
+
+    # NET LOGIN
+    agent["Net Login Seconds"] = (
+        agent["Login Seconds"] - agent["Total Break Seconds"]
+    )
+
+    # TALK TIME
+    agent["Talk Seconds"] = agent["Total Talk Time"].apply(time_to_seconds)
+
+    # CDR FILTER
+    mature = cdr[
+        (cdr["Call Status"].isin(["CALLMATURED", "TRANSFER"]))
     ]
 
-    total_mature = cdr.groupby("EMPLOYEEID").size()
+    ib = mature[mature["CallType"] == "CSRINBOUND"]
+    ob = mature[mature["CallType"] != "CSRINBOUND"]
 
-    ib = cdr[cdr["CALLTYPE"] == "CSRINBOUND"].groupby("EMPLOYEEID").size()
+    total_mature = mature.groupby("Username").size()
+    ib_mature = ib.groupby("Username").size()
+    ob_mature = ob.groupby("Username").size()
 
-    ob = total_mature - ib
+    result = []
 
-    talk = cdr.groupby("EMPLOYEEID")["TALKTIME"].sum()
+    for index, row in agent.iterrows():
 
-    final = agent_df.copy()
+        emp = row["Employee ID"]
+        name = row["Agent Full Name"]
 
-    final["Total Mature"] = final["Employee ID"].map(total_mature).fillna(0).astype(int)
-    final["IB Mature"] = final["Employee ID"].map(ib).fillna(0).astype(int)
-    final["OB Mature"] = final["Employee ID"].map(ob).fillna(0).astype(int)
+        tm = total_mature.get(emp, 0)
 
-    final["Total Talk"] = final["Employee ID"].map(talk).fillna(pd.Timedelta(seconds=0))
+        talk = row["Talk Seconds"]
 
-    final["AHT"] = final.apply(
-        lambda x:
-        format_time(x["Total Talk"] / x["Total Mature"])
-        if x["Total Mature"] > 0 else "00:00:00",
-        axis=1
-    )
+        aht = seconds_to_time(talk/tm) if tm > 0 else "00:00:00"
 
-    final = final.drop(columns=["Total Talk"])
+        result.append({
 
-    final.to_excel(OUTPUT, index=False)
+            "Employee ID": emp,
+            "Agent Name": name,
+            "Total Login": seconds_to_time(row["Login Seconds"]),
+            "Total Net Login": seconds_to_time(row["Net Login Seconds"]),
+            "Total Break": seconds_to_time(row["Total Break Seconds"]),
+            "Total Meeting": seconds_to_time(row["Total Meeting Seconds"]),
+            "AHT": aht,
+            "Total Mature": tm,
+            "IB Mature": ib_mature.get(emp, 0),
+            "OB Mature": ob_mature.get(emp, 0)
 
-    report_time = datetime.now().strftime("%d %b %Y %I:%M %p")
+        })
 
-    return render_template(
-        "result.html",
-        tables=final.values.tolist(),
-        report_time=report_time
-    )
-
-
-@app.route("/download")
-def download():
-    return send_file(OUTPUT, as_attachment=True)
-
-
-@app.route("/reset")
-def reset():
-    return render_template("upload.html")
-
+    return render_template("result.html", data=result)
 
 if __name__ == "__main__":
     app.run()
