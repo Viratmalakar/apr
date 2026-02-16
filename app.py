@@ -1,217 +1,205 @@
-from flask import Flask, render_template, request, redirect, url_for
+from flask import Flask, render_template, request, send_file, redirect, url_for
 import pandas as pd
 import os
-import glob
-from datetime import timedelta
-
-# Auto downloader
-try:
-    from downloader import download_reports
-    AUTO_AVAILABLE = True
-except:
-    AUTO_AVAILABLE = False
-
+import tempfile
+from openpyxl import load_workbook
 
 app = Flask(__name__)
 
+# -----------------------------
+# UNMERGE FUNCTION
+# -----------------------------
+def unmerge_excel(file):
+    temp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
+    wb = load_workbook(file)
 
-# =========================
-# TIME FORMAT FUNCTION
-# =========================
+    for sheet in wb.worksheets:
+        merged = list(sheet.merged_cells.ranges)
+        for m in merged:
+            sheet.unmerge_cells(str(m))
 
+    wb.save(temp.name)
+    return temp.name
+
+
+# -----------------------------
+# TIME FORMAT
+# -----------------------------
 def format_time(seconds):
 
     if pd.isna(seconds):
         return "00:00:00"
 
     seconds = int(seconds)
+    h = seconds // 3600
+    m = (seconds % 3600) // 60
+    s = seconds % 60
 
-    return str(timedelta(seconds=seconds))
-
-
-# =========================
-# PROCESS REPORT FUNCTION
-# =========================
-
-def process_reports(agent_file, cdr_file):
-
-    # =====================
-    # AGENT PERFORMANCE
-    # =====================
-
-    agent = pd.read_excel(agent_file, header=2)
-
-    agent.replace("-", 0, inplace=True)
-
-    agent['Employee ID'] = agent.iloc[:,1].astype(str)
-    agent['Agent Name'] = agent.iloc[:,2]
-
-    login = pd.to_timedelta(agent.iloc[:,3].astype(str), errors='coerce').dt.total_seconds()
-
-    lunch = pd.to_timedelta(agent.iloc[:,19].astype(str), errors='coerce').dt.total_seconds()
-    tea = pd.to_timedelta(agent.iloc[:,24].astype(str), errors='coerce').dt.total_seconds()
-    short = pd.to_timedelta(agent.iloc[:,22].astype(str), errors='coerce').dt.total_seconds()
-
-    meeting = pd.to_timedelta(agent.iloc[:,20].astype(str), errors='coerce').dt.total_seconds()
-    system = pd.to_timedelta(agent.iloc[:,23].astype(str), errors='coerce').dt.total_seconds()
-
-    talk = pd.to_timedelta(agent.iloc[:,5].astype(str), errors='coerce').dt.total_seconds()
-
-    agent['Total Login'] = login
-    agent['Total Break'] = lunch + tea + short
-    agent['Total Meeting'] = meeting + system
-    agent['Net Login'] = login - agent['Total Break']
-    agent['Total Talk'] = talk
-
-    agent_final = agent[['Employee ID','Agent Name','Total Login','Net Login','Total Break','Total Meeting','Total Talk']]
+    return f"{h:02}:{m:02}:{s:02}"
 
 
-    # =====================
-    # CDR REPORT
-    # =====================
-
-    cdr = pd.read_excel(cdr_file, header=1)
-
-    cdr['Employee ID'] = cdr.iloc[:,1].astype(str)
-
-    cdr['CallType'] = cdr.iloc[:,6].astype(str)
-    cdr['CallStatus'] = cdr.iloc[:,25].astype(str)
-
-    matured = cdr[cdr['CallStatus'].isin(['CALLMATURED','TRANSFER'])]
-
-    total_mature = matured.groupby('Employee ID').size()
-
-    ib_mature = matured[matured['CallType']=="CSRINBOUND"].groupby('Employee ID').size()
-
-    cdr_summary = pd.DataFrame({
-        'Total Mature': total_mature,
-        'IB Mature': ib_mature
-    }).fillna(0)
-
-    cdr_summary['OB Mature'] = cdr_summary['Total Mature'] - cdr_summary['IB Mature']
-
-    cdr_summary.reset_index(inplace=True)
-
-
-    # =====================
-    # MERGE BOTH
-    # =====================
-
-    final = pd.merge(agent_final, cdr_summary, on="Employee ID", how="left")
-
-    final.fillna(0, inplace=True)
-
-
-    # =====================
-    # AHT
-    # =====================
-
-    final['AHT'] = final.apply(
-        lambda x: x['Total Talk']/x['Total Mature'] if x['Total Mature']>0 else 0,
-        axis=1
-    )
-
-
-    # =====================
-    # FORMAT TIME
-    # =====================
-
-    final['Total Login'] = final['Total Login'].apply(format_time)
-    final['Net Login'] = final['Net Login'].apply(format_time)
-    final['Total Break'] = final['Total Break'].apply(format_time)
-    final['Total Meeting'] = final['Total Meeting'].apply(format_time)
-    final['AHT'] = final['AHT'].apply(format_time)
-
-
-    # =====================
-    # FINAL HEADERS
-    # =====================
-
-    final = final[[
-        'Employee ID',
-        'Agent Name',
-        'Total Login',
-        'Net Login',
-        'Total Break',
-        'Total Meeting',
-        'AHT',
-        'Total Mature',
-        'IB Mature',
-        'OB Mature'
-    ]]
-
-    return final
-
-
-# =========================
-# HOME PAGE
-# =========================
-
-@app.route('/')
+# -----------------------------
+# GENERATE REPORT
+# -----------------------------
+@app.route("/", methods=["GET"])
 def index():
     return render_template("index.html")
 
 
-# =========================
-# MANUAL GENERATE
-# =========================
-
-@app.route('/generate', methods=['POST'])
+@app.route("/generate", methods=["POST"])
 def generate():
 
-    agent_file = request.files['agent']
-    cdr_file = request.files['cdr']
+    ap_file = request.files["agent_file"]
+    cdr_file = request.files["cdr_file"]
 
-    if not agent_file or not cdr_file:
-        return "Upload both files"
+    ap_path = unmerge_excel(ap_file)
+    cdr_path = unmerge_excel(cdr_file)
 
-    agent_path = "agent.xlsx"
-    cdr_path = "cdr.xlsx"
+    # -----------------------------
+    # READ AGENT PERFORMANCE
+    # -----------------------------
+    ap = pd.read_excel(ap_path, skiprows=2)
 
-    agent_file.save(agent_path)
-    cdr_file.save(cdr_path)
+    ap.replace("-", 0, inplace=True)
 
-    df = process_reports(agent_path, cdr_path)
+    ap["Employee ID"] = ap.iloc[:,1].astype(str)
+    ap["Agent Name"] = ap.iloc[:,2]
+
+    ap["Total Login"] = ap.iloc[:,3]
+
+    ap["Total Break"] = (
+        pd.to_numeric(ap.iloc[:,19], errors="coerce").fillna(0)
+        +
+        pd.to_numeric(ap.iloc[:,22], errors="coerce").fillna(0)
+        +
+        pd.to_numeric(ap.iloc[:,24], errors="coerce").fillna(0)
+    )
+
+    ap["Total Meeting"] = (
+        pd.to_numeric(ap.iloc[:,20], errors="coerce").fillna(0)
+        +
+        pd.to_numeric(ap.iloc[:,23], errors="coerce").fillna(0)
+    )
+
+    ap["Total Net Login"] = ap["Total Login"] - ap["Total Break"]
+
+    ap["Total Talk Time"] = pd.to_numeric(ap.iloc[:,5], errors="coerce").fillna(0)
+
+    ap_final = ap[
+        [
+            "Employee ID",
+            "Agent Name",
+            "Total Login",
+            "Total Net Login",
+            "Total Break",
+            "Total Meeting",
+            "Total Talk Time"
+        ]
+    ]
+
+    # -----------------------------
+    # READ CDR
+    # -----------------------------
+    cdr = pd.read_excel(cdr_path, skiprows=1)
+
+    cdr["Employee ID"] = cdr.iloc[:,1].astype(str)
+    cdr["Campaign"] = cdr.iloc[:,6]
+    cdr["Status"] = cdr.iloc[:,25]
+
+    cdr["MatureFlag"] = cdr["Status"].isin(["CALLMATURED","TRANSFER"])
+    cdr["IBFlag"] = (
+        cdr["Campaign"].str.upper() == "CSRINBOUND"
+    ) & cdr["MatureFlag"]
+
+    total = cdr.groupby("Employee ID")["MatureFlag"].sum()
+    ib = cdr.groupby("Employee ID")["IBFlag"].sum()
+
+    mature = pd.DataFrame({
+
+        "Employee ID": total.index,
+        "Total Mature": total.values,
+        "IB Mature": ib.values
+
+    })
+
+    mature["OB Mature"] = mature["Total Mature"] - mature["IB Mature"]
+
+    # -----------------------------
+    # MERGE
+    # -----------------------------
+    final = pd.merge(ap_final, mature, on="Employee ID", how="left")
+
+    final.fillna(0, inplace=True)
+
+    # -----------------------------
+    # AHT
+    # -----------------------------
+    final["AHT"] = final.apply(
+
+        lambda x: format_time(
+            x["Total Talk Time"] / x["Total Mature"]
+        ) if x["Total Mature"] > 0 else "00:00:00",
+
+        axis=1
+
+    )
+
+    final["Total Login"] = final["Total Login"].apply(format_time)
+    final["Total Net Login"] = final["Total Net Login"].apply(format_time)
+    final["Total Break"] = final["Total Break"].apply(format_time)
+    final["Total Meeting"] = final["Total Meeting"].apply(format_time)
+
+    final = final[
+
+        [
+            "Employee ID",
+            "Agent Name",
+            "Total Login",
+            "Total Net Login",
+            "Total Break",
+            "Total Meeting",
+            "AHT",
+            "Total Mature",
+            "IB Mature",
+            "OB Mature"
+        ]
+
+    ]
+
+    final.to_excel("final_report.xlsx", index=False)
 
     return render_template(
         "result.html",
-        tables=[df.to_html(classes="data", index=False)]
+        tables=final.to_dict("records"),
+        headers=final.columns
     )
 
 
-# =========================
-# AUTO DOWNLOAD GENERATE
-# =========================
+# -----------------------------
+# DOWNLOAD EXCEL
+# -----------------------------
+@app.route("/download")
+def download():
 
-@app.route('/auto_generate')
-def auto_generate():
+    return send_file(
 
-    if not AUTO_AVAILABLE:
-        return "Auto download not available"
+        "final_report.xlsx",
+        as_attachment=True
 
-    download_reports()
-
-    folder = os.path.expanduser("~/Downloads")
-
-    agent_file = max(
-        glob.glob(os.path.join(folder,"*Agent*.xlsx")),
-        key=os.path.getctime
-    )
-
-    cdr_file = max(
-        glob.glob(os.path.join(folder,"*CdrReport*.xlsx")),
-        key=os.path.getctime
-    )
-
-    df = process_reports(agent_file, cdr_file)
-
-    return render_template(
-        "result.html",
-        tables=[df.to_html(classes="data", index=False)]
     )
 
 
-# =========================
+# -----------------------------
+# RESET
+# -----------------------------
+@app.route("/reset")
+def reset():
+    return redirect("/")
 
+
+# -----------------------------
+# RUN
+# -----------------------------
 if __name__ == "__main__":
-    app.run(debug=True)
+
+    app.run()
