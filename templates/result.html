@@ -2,157 +2,67 @@
 <html>
 <head>
 
-<meta charset="UTF-8">
-
 <title>Dashboard Result</title>
 
-<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
 
 <style>
 
 body{
 
-background:linear-gradient(135deg,#020617,#0f172a);
+background:#0f2027;
 font-family:Segoe UI;
-margin:0;
-padding:20px;
 color:white;
-
-}
-
-.container{
-
-border:2px solid gold;
-
-border-radius:12px;
-
 padding:20px;
 
-box-shadow:
-0 0 10px gold,
-inset 0 0 10px rgba(255,215,0,0.3);
-
 }
 
-.header{
+h2{
 
-display:flex;
-justify-content:space-between;
-align-items:center;
-margin-bottom:20px;
-
-}
-
-.title{
-
-font-size:26px;
 color:#FFD700;
-font-weight:bold;
-
-text-shadow:0 0 5px gold;
-
-}
-
-.controls{
-
-display:flex;
-gap:10px;
-
-}
-
-input{
-
-padding:10px;
-border-radius:6px;
-border:2px solid gold;
-background:black;
-color:white;
-
-box-shadow:inset 0 0 5px gold;
-
-}
-
-button{
-
-padding:10px 20px;
-
-border:none;
-border-radius:6px;
-
-font-weight:bold;
-cursor:pointer;
-
-background:linear-gradient(45deg,#FFD700,#b8860b);
-
-box-shadow:
-0 5px 0 #8b6914,
-0 0 10px gold;
-
-}
-
-button:active{
-
-transform:translateY(3px);
-
-}
-
-.table-box{
-
-border:2px solid gold;
-
-border-radius:10px;
-
-overflow:auto;
-
-box-shadow:
-0 0 10px gold,
-inset 0 0 10px rgba(255,215,0,0.3);
 
 }
 
 table{
 
-width:100%;
 border-collapse:collapse;
+width:100%;
+background:#1e2a38;
+box-shadow:0 0 20px black;
 
 }
 
 th{
 
 background:linear-gradient(45deg,#FFD700,#b8860b);
-
-padding:12px;
-
-border:2px solid gold;
-
 color:black;
+padding:12px;
+border:2px solid black;
 
 }
 
 td{
 
 padding:10px;
-
-border:1px solid gold;
-
-}
-
-tr{
-
-background:#020617;
+border:1px solid #555;
 
 }
 
-tr:hover{
+button{
 
-background:#0f172a;
+padding:10px 20px;
+margin:10px;
+background:gold;
+border:none;
+cursor:pointer;
 
 }
 
-.report{
+input{
 
-color:#FFD700;
-margin-bottom:10px;
+padding:10px;
+margin:10px;
+width:300px;
 
 }
 
@@ -162,121 +72,97 @@ margin-bottom:10px;
 
 <body>
 
-<div class="container">
+<h2>Agent Performance Report</h2>
 
-<div class="header">
+<input type="text" id="search" placeholder="Search Employee ID or Name">
 
-<div class="title">
+<button onclick="resetPage()">Reset</button>
 
-Agent Performance Dashboard
+<button onclick="copyPNG()">Copy Table</button>
 
-</div>
+<button onclick="downloadExcel()">Download Excel</button>
 
-<div class="controls">
-
-<input type="text" id="search" placeholder="Search ID or Name" onkeyup="search()">
-
-<button onclick="copyTable()">Copy Table</button>
-
-<button onclick="reset()">Reset</button>
-
-</div>
-
-</div>
-
-<div class="report">
-
-Report Time : {{report_time}}
-
-</div>
-
-<div class="table-box" id="tableBox">
+<div id="tableDiv">
 
 <table id="table">
 
-<thead>
-
 <tr>
 
-<th>Employee ID</th>
-<th>Agent Name</th>
-<th>Total Login</th>
-<th>Total Net Login</th>
-<th>Total Break</th>
-<th>Total Meeting</th>
-<th>AHT</th>
-<th>Total Mature</th>
-<th>IB Mature</th>
-<th>OB Mature</th>
+{% for h in headers %}
+<th>{{h}}</th>
+{% endfor %}
 
 </tr>
 
-</thead>
-
-<tbody>
-
-{% for row in rows %}
+{% for row in tables %}
 
 <tr>
 
-<td>{{row["Employee ID"]}}</td>
-<td>{{row["Agent Name"]}}</td>
-<td>{{row["Total Login"]}}</td>
-<td>{{row["Total Net Login"]}}</td>
-<td>{{row["Total Break"]}}</td>
-<td>{{row["Total Meeting"]}}</td>
-<td>{{row["AHT"]}}</td>
-<td>{{row["Total Mature"]}}</td>
-<td>{{row["IB Mature"]}}</td>
-<td>{{row["OB Mature"]}}</td>
+{% for h in headers %}
+<td>{{row[h]}}</td>
+{% endfor %}
 
 </tr>
 
 {% endfor %}
 
-</tbody>
-
 </table>
-
-</div>
 
 </div>
 
 <script>
 
-function reset(){
+document.getElementById("search").addEventListener("keyup", function(){
 
-location.href="/";
+var value=this.value.toLowerCase();
+var rows=document.querySelectorAll("#table tr");
 
-}
+rows.forEach(function(row,i){
 
-function search(){
+if(i===0)return;
 
-let input=document.getElementById("search").value.toLowerCase();
-
-let rows=document.querySelectorAll("#table tbody tr");
-
-rows.forEach(row=>{
-
-let id=row.cells[0].innerText.toLowerCase();
-
-let name=row.cells[1].innerText.toLowerCase();
-
-row.style.display=(id.includes(input)||name.includes(input))?"":"none";
+row.style.display=row.innerText.toLowerCase().includes(value)?"":"none";
 
 });
 
+});
+
+
+function resetPage(){
+
+window.location="/";
+
 }
 
-function copyTable(){
 
-html2canvas(document.getElementById("tableBox"),{scale:4}).then(canvas=>{
+function downloadExcel(){
 
-canvas.toBlob(blob=>{
+window.location="/download";
 
-navigator.clipboard.write([new ClipboardItem({'image/png':blob})]);
+}
 
-alert("Copied as image");
+
+function copyPNG(){
+
+html2canvas(document.querySelector("#tableDiv"),{
+
+scale:3
+
+}).then(canvas=>{
+
+canvas.toBlob(function(blob){
+
+navigator.clipboard.write([
+
+new ClipboardItem({
+
+"image/png":blob
+
+})
+
+]);
+
+alert("Table copied as PNG");
 
 });
 
