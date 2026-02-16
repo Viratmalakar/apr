@@ -1,1 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Agent Performance Dashboard</title>
+
+<style>
+
+body{
+background:#0f172a;
+color:white;
+font-family:Arial;
+text-align:center;
+padding-top:100px;
+}
+
+.box{
+background:#1e293b;
+padding:40px;
+border-radius:15px;
+width:400px;
+margin:auto;
+box-shadow:0 0 30px black;
+}
+
+button{
+background:gold;
+color:black;
+padding:10px 20px;
+border:none;
+font-weight:bold;
+cursor:pointer;
+}
+
+input{
+margin:10px;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<div class="box">
+
+<h2>Upload Reports</h2>
+
+<form action="/generate" method="POST" enctype="multipart/form-data">
+
+Agent Performance Report<br>
+<input type="file" name="agent_file" required><br>
+
+CDR Report<br>
+<input type="file" name="cdr_file" required><br>
+
+<button type="submit">Generate Report</button>
+
+</form>
+
+</div>
+
+</body>
+</html>
 
