@@ -7,36 +7,46 @@
 <style>
 
 body{
-background:#020a1f;
-color:white;
+background:#001233;
 font-family:Arial;
+color:white;
 text-align:center;
 }
 
+h1{
+margin-top:20px;
+}
+
+button{
+background:#FFD700;
+border:none;
+padding:10px 20px;
+margin:10px;
+font-weight:bold;
+cursor:pointer;
+}
+
 table{
-border-collapse:collapse;
 margin:auto;
+border-collapse:collapse;
 background:white;
 color:black;
 }
 
-th,td{
+th{
+background:#FFD700;
+color:black;
 padding:10px;
 border:1px solid black;
 }
 
-th{
-background:gold;
+td{
+padding:8px;
+border:1px solid black;
 }
 
-button{
-
-background:gold;
-padding:10px;
-margin:10px;
-border:none;
-cursor:pointer;
-
+tr:nth-child(even){
+background:#f2f2f2;
 }
 
 </style>
@@ -47,13 +57,9 @@ cursor:pointer;
 
 <h1>Agent Performance Report</h1>
 
-Report Time: {{report_time}}
+<button onclick="downloadExcel()">Download Excel</button>
 
-<br>
-
-<button onclick="window.location='/download'">Download Excel</button>
-
-<button onclick="window.location='/reset'">Reset</button>
+<button onclick="window.location.href='/'">Reset</button>
 
 <br><br>
 
@@ -78,15 +84,41 @@ Report Time: {{report_time}}
 
 <tr>
 
-{% for col in row %}
-<td>{{col}}</td>
-{% endfor %}
+<td>{{ row["Employee ID"] }}</td>
+
+<td>{{ row["Agent Name"] }}</td>
+
+<td>{{ row["Total Login"] }}</td>
+
+<td>{{ row["Total Net Login"] }}</td>
+
+<td>{{ row["Total Break"] }}</td>
+
+<td>{{ row["Total Meeting"] }}</td>
+
+<td>{{ row["AHT"] }}</td>
+
+<td>{{ row["Total Mature"] }}</td>
+
+<td>{{ row["IB Mature"] }}</td>
+
+<td>{{ row["OB Mature"] }}</td>
 
 </tr>
 
 {% endfor %}
 
 </table>
+
+<script>
+
+function downloadExcel(){
+
+alert("Excel download logic already in app.py")
+
+}
+
+</script>
 
 </body>
 </html>
