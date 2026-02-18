@@ -4,16 +4,14 @@ import os
 
 app = Flask(__name__)
 
-UPLOAD_FOLDER = "uploads"
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-
-
 # =========================
-# TIME FORMAT FUNCTIONS
+# TIME CONVERSION FUNCTIONS
 # =========================
 
 def time_to_seconds(t):
     try:
+        if pd.isna(t):
+            return 0
         h, m, s = str(t).split(":")
         return int(h)*3600 + int(m)*60 + int(s)
     except:
@@ -21,14 +19,15 @@ def time_to_seconds(t):
 
 
 def seconds_to_time(sec):
-    h = int(sec // 3600)
-    m = int((sec % 3600) // 60)
-    s = int(sec % 60)
-    return f"{h:02}:{m:02}:{s:02}"
+    sec = int(sec)
+    h = sec // 3600
+    m = (sec % 3600) // 60
+    s = sec % 60
+    return f"{h:02d}:{m:02d}:{s:02d}"
 
 
 # =========================
-# MAIN PAGE
+# HOME PAGE
 # =========================
 
 @app.route("/")
@@ -37,125 +36,154 @@ def index():
 
 
 # =========================
-# GENERATE REPORT
+# GENERATE DASHBOARD
 # =========================
 
 @app.route("/generate", methods=["POST"])
 def generate():
 
     if "agent_file" not in request.files or "cdr_file" not in request.files:
-        return "Upload both files"
+        return "Please upload both files"
 
     agent_file = request.files["agent_file"]
     cdr_file = request.files["cdr_file"]
 
-    agent_path = os.path.join(UPLOAD_FOLDER, agent_file.filename)
-    cdr_path = os.path.join(UPLOAD_FOLDER, cdr_file.filename)
-
-    agent_file.save(agent_path)
-    cdr_file.save(cdr_path)
-
     # =========================
-    # READ AGENT FILE
+    # READ FILES
     # =========================
 
-    agent = pd.read_excel(agent_path, skiprows=2)
+    agent = pd.read_excel(agent_file)
+    cdr = pd.read_excel(cdr_file)
+
+    # =========================
+    # CLEAN HEADERS
+    # =========================
 
     agent.columns = agent.columns.str.strip()
+    cdr.columns = cdr.columns.str.strip()
 
-    # Column Mapping based on your file
-    agent["Employee ID"] = agent.iloc[:, 0].astype(str).str.strip()
-    agent["Agent Name"] = agent.iloc[:, 2].astype(str).str.strip()
+    # =========================
+    # REQUIRED COLUMNS (FINAL LOGIC)
+    # =========================
 
-    login = agent.iloc[:, 3]
-    lunch = agent.iloc[:, 19]
-    tea = agent.iloc[:, 22]
-    short = agent.iloc[:, 24]
-    meeting = agent.iloc[:, 20]
-    system = agent.iloc[:, 23]
+    emp_col = agent.columns[0]
+    name_col = agent.columns[2]
+    login_col = agent.columns[3]
+    lunch_col = agent.columns[19]
+    tea_col = agent.columns[22]
+    short_col = agent.columns[24]
+    meeting_col = agent.columns[20]
+    system_col = agent.columns[23]
 
     # =========================
     # CALCULATIONS
     # =========================
 
-    total_break_sec = (
-        lunch.apply(time_to_seconds) +
-        tea.apply(time_to_seconds) +
-        short.apply(time_to_seconds)
+    agent["Total Break"] = (
+        agent[lunch_col].apply(time_to_seconds) +
+        agent[tea_col].apply(time_to_seconds) +
+        agent[short_col].apply(time_to_seconds)
     )
 
-    meeting_sec = (
-        meeting.apply(time_to_seconds) +
-        system.apply(time_to_seconds)
+    agent["Total Meeting"] = (
+        agent[meeting_col].apply(time_to_seconds) +
+        agent[system_col].apply(time_to_seconds)
     )
 
-    login_sec = login.apply(time_to_seconds)
-
-    net_login_sec = login_sec - total_break_sec
-
-    agent["Total Login"] = login
-    agent["Total Break"] = total_break_sec.apply(seconds_to_time)
-    agent["Total Meeting"] = meeting_sec.apply(seconds_to_time)
-    agent["Total Net Login"] = net_login_sec.apply(seconds_to_time)
-
+    agent["Net Login"] = (
+        agent[login_col].apply(time_to_seconds)
+        - agent["Total Break"]
+    )
 
     # =========================
-    # READ CDR FILE
+    # CDR CALCULATION
     # =========================
 
-    cdr = pd.read_excel(cdr_path)
     cdr.columns = cdr.columns.str.strip()
 
-    cdr["Employee ID"] = cdr.iloc[:, 1].astype(str).str.strip()
+    cdr["Employee ID"] = cdr.iloc[:,0].astype(str)
 
-    ib = cdr[cdr.iloc[:, 5] == "IB"]
-    ob = cdr[cdr.iloc[:, 5] == "OB"]
+    mature = cdr[cdr.iloc[:,5] == "Mature"]
 
-    ib_count = ib.groupby("Employee ID").size()
-    ob_count = ob.groupby("Employee ID").size()
+    total_mature = mature.groupby("Employee ID").size()
+    ib_mature = mature[mature.iloc[:,3] == "IB"].groupby("Employee ID").size()
+    ob_mature = mature[mature.iloc[:,3] == "OB"].groupby("Employee ID").size()
 
-    talk_time = cdr.groupby("Employee ID")[cdr.columns[7]].apply(
+    talk_time = mature.groupby("Employee ID")[cdr.columns[6]].apply(
         lambda x: sum(time_to_seconds(i) for i in x)
     )
 
-
     # =========================
-    # FINAL MERGE
-    # =========================
-
-    final = pd.DataFrame()
-
-    final["Employee ID"] = agent["Employee ID"]
-    final["Agent Name"] = agent["Agent Name"]
-    final["Total Login"] = agent["Total Login"]
-    final["Total Net Login"] = agent["Total Net Login"]
-    final["Total Break"] = agent["Total Break"]
-    final["Total Meeting"] = agent["Total Meeting"]
-
-    final["IB Mature"] = final["Employee ID"].map(ib_count).fillna(0).astype(int)
-    final["OB Mature"] = final["Employee ID"].map(ob_count).fillna(0).astype(int)
-
-    final["Total Mature"] = final["IB Mature"] + final["OB Mature"]
-
-    talk_sec = final["Employee ID"].map(talk_time).fillna(0)
-
-    final["AHT"] = (
-        talk_sec / final["Total Mature"].replace(0, 1)
-    ).apply(seconds_to_time)
-
-
-    # =========================
-    # RESULT PAGE
+    # BUILD FINAL DATAFRAME
     # =========================
 
-    data = final.to_dict(orient="records")
+    result = pd.DataFrame()
 
-    return render_template("result.html", data=data)
+    result["Employee ID"] = agent[emp_col].astype(str)
+    result["Agent Name"] = agent[name_col]
+
+    result["Total Login"] = agent[login_col].apply(time_to_seconds).apply(seconds_to_time)
+
+    result["Total Net Login"] = agent["Net Login"].apply(seconds_to_time)
+
+    result["Total Break"] = agent["Total Break"].apply(seconds_to_time)
+
+    result["Total Meeting"] = agent["Total Meeting"].apply(seconds_to_time)
+
+    result["Total Mature"] = result["Employee ID"].map(total_mature).fillna(0).astype(int)
+
+    result["IB Mature"] = result["Employee ID"].map(ib_mature).fillna(0).astype(int)
+
+    result["OB Mature"] = result["Employee ID"].map(ob_mature).fillna(0).astype(int)
+
+    # =========================
+    # AHT CALCULATION
+    # =========================
+
+    def calc_aht(emp):
+        tm = talk_time.get(emp, 0)
+        count = total_mature.get(emp, 0)
+
+        if count == 0:
+            return "00:00:00"
+
+        return seconds_to_time(tm // count)
+
+    result["AHT"] = result["Employee ID"].apply(calc_aht)
+
+    # =========================
+    # SUMMARY
+    # =========================
+
+    summary = {
+
+        "total_agents": len(result),
+
+        "total_login": seconds_to_time(
+            sum(time_to_seconds(i) for i in result["Total Login"])
+        ),
+
+        "total_net_login": seconds_to_time(
+            sum(time_to_seconds(i) for i in result["Total Net Login"])
+        ),
+
+        "total_mature": result["Total Mature"].sum()
+
+    }
+
+    return render_template(
+        "result.html",
+        tables=result.to_dict(orient="records"),
+        summary=summary
+    )
 
 
 # =========================
-# RUN APP
+# RUN APP (RENDER READY)
 # =========================
 
 if __name__ == "__main__":
-    app.run()
+
+    port = int(os.environ.get("PORT", 10000))
+
+    app.run(host="0.0.0.0", port=port)
